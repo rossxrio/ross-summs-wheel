@@ -1,0 +1,28 @@
+/* Shared colors and page setup for the transparent overlay window. */
+
+:root {
+  --slice: rgba(12, 14, 20, 0.72);
+  --slice-stroke: rgba(255, 255, 255, 0.12);
+  --accent: #c8aa6e; /* League gold */
+  --text: #f0e6d2;
+  --muted: #a09b8c;
+  --ready: #4ade80;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  color: var(--text);
+}
+
+html,
+body {
+  margin: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  /* The window is a transparent overlay over the game. */
+  background: transparent;
+  user-select: none;
+}
+
+/* Browser preview: stand-in for the game behind the overlay. */
+body.preview {
+  background: linear-gradient(135deg, #1b3a2a, #2a2f3d 60%, #3a2a2a);
+}

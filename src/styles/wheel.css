@@ -1,0 +1,124 @@
+/* Radial wheel (src/wheel/renderer.ts). */
+
+#wheel {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  /* Dim the game a little so the wheel reads, like GTA's slow-mo backdrop. */
+  background: radial-gradient(circle, rgba(0, 0, 0, 0.35) 0%, rgba(0, 0, 0, 0.15) 60%, transparent 100%);
+  animation: fade-in 90ms ease-out;
+  /* The wheel reads mouse movement, not position: the stick dot is the cursor. */
+  cursor: none;
+}
+
+#wheel[hidden] {
+  display: none;
+}
+
+#wheel svg {
+  overflow: visible;
+  animation: pop-in 110ms ease-out;
+}
+
+.slice-base {
+  fill: var(--slice);
+  stroke: var(--slice-stroke);
+  stroke-width: 1.5;
+}
+
+/* Highlight wedge that glides between slices (rotated from JS). */
+.selector {
+  fill: rgba(200, 170, 110, 0.3);
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  pointer-events: none;
+}
+
+.slice {
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 140ms cubic-bezier(0.2, 0.8, 0.3, 1.2);
+}
+
+.slice.selected {
+  transform: scale(1.08);
+}
+
+.slice text {
+  text-anchor: middle;
+  dominant-baseline: middle;
+  fill: var(--text);
+  transition: fill 120ms;
+}
+
+.slice .label {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.slice .sub {
+  font-size: 12px;
+  fill: var(--muted);
+}
+
+.slice .glyph {
+  font-size: 22px;
+  font-weight: 700;
+  fill: var(--muted);
+}
+
+.slice.selected .label,
+.slice.selected .glyph {
+  fill: #fff;
+}
+
+.hub {
+  fill: rgba(8, 9, 13, 0.85);
+  stroke: var(--accent);
+  stroke-width: 1.5;
+}
+
+/* Virtual stick: shows where the mouse is "pointing" the wheel. */
+.stick-dot {
+  fill: var(--muted);
+  opacity: 0.5;
+  transition:
+    fill 120ms,
+    opacity 120ms;
+}
+
+.stick-dot.active {
+  fill: var(--accent);
+  opacity: 1;
+}
+
+.hub-title,
+.hub-hint {
+  text-anchor: middle;
+  dominant-baseline: middle;
+}
+
+.hub-title {
+  font-size: 17px;
+  font-weight: 700;
+  fill: var(--accent);
+}
+
+.hub-hint {
+  font-size: 11px;
+  fill: var(--muted);
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes pop-in {
+  from {
+    transform: scale(0.9);
+    opacity: 0;
+  }
+}
