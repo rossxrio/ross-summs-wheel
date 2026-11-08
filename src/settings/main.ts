@@ -281,7 +281,8 @@ async function save(): Promise<void> {
     notice = { text: String(err), tone: "error" };
   }
   saving = false;
-  renderFooter();
+  // Everything, not just the footer: the voice test only unlocks once saved.
+  render();
 }
 
 async function toggleOverlay(): Promise<void> {
