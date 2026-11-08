@@ -89,7 +89,7 @@ function renderBinds(): void {
 
 function renderFooter(): void {
   const problem = findProblem(draft);
-  let text = "Right Shift + hotkey opens this";
+  let text = "Tap the hotkey 3 times to open this";
   let tone = "";
   if (recording?.kind === "hotkey") text = "Press the new hotkey · Esc to cancel";
   else if (recording?.kind === "bind") text = "Type up to 3 keys · Enter to finish";

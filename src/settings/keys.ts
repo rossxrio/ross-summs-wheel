@@ -4,9 +4,10 @@
  * e.g. "Backquote", "Ctrl+Alt+KeyQ", "F13".
  */
 
-/** Modifiers in the order they're written. Shift is left out on purpose: Right Shift + hotkey opens settings. */
+/** Modifiers in the order they're written. */
 const MODIFIERS = [
   { token: "Ctrl", label: "Ctrl", held: (e: KeyboardEvent) => e.ctrlKey },
+  { token: "Shift", label: "Shift", held: (e: KeyboardEvent) => e.shiftKey },
   { token: "Alt", label: "Alt", held: (e: KeyboardEvent) => e.altKey },
   { token: "Super", label: "Win", held: (e: KeyboardEvent) => e.metaKey },
 ];

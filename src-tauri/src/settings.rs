@@ -1,4 +1,4 @@
-//! The settings window, opened with Right Shift + the hotkey or from the tray.
+//! The settings window, opened by tapping the hotkey three times or from the tray.
 //! Its page is `settings.html` / `src/settings/`.
 
 use crate::{

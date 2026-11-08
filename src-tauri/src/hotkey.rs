@@ -1,6 +1,6 @@
 //! Global shortcuts:
 //! - the wheel hotkey,
-//! - Right Shift + the hotkey, which opens the settings window,
+//! - three quick taps of the hotkey, which open the settings window,
 //! - quick-bind keys, registered only while the hotkey is held so they reach
 //!   the game normally the rest of the time.
 
@@ -9,9 +9,17 @@ use crate::{
     quick_binds::{Matcher, QuickBind},
     settings,
 };
-use std::sync::Mutex;
+use std::{
+    sync::Mutex,
+    time::{Duration, Instant},
+};
 use tauri::{plugin::TauriPlugin, AppHandle, Emitter, Manager, Wry};
-use tauri_plugin_global_shortcut::{GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
+
+/// A press shorter than this counts as a tap (release is polled every 50ms).
+const TAP_HOLD: Duration = Duration::from_millis(250);
+/// Taps further apart than this (release to next press) don't add up.
+const TAP_GAP: Duration = Duration::from_millis(400);
 
 /// The settings in use and the shortcuts currently registered for them.
 #[derive(Default)]
@@ -23,9 +31,9 @@ struct Bound {
     hotkey: String,
     quick_binds: Vec<QuickBind>,
     matcher: Matcher,
-    /// Both are `None` while paused (settings window open).
+    /// `None` while paused (settings window open).
     wheel: Option<Shortcut>,
-    settings: Option<Shortcut>,
+    taps: Taps,
     /// Quick-bind keys, registered while the wheel hotkey is held.
     armed: Vec<Shortcut>,
 }
@@ -34,19 +42,22 @@ struct Bound {
 /// on press, `false` on release. Both edges matter: press opens the wheel,
 /// release picks the role. A completed quick bind is sent as `quick-bind`.
 ///
-/// The settings shortcut is the hotkey plus Shift. Global shortcuts can't tell
-/// the two Shift keys apart, so the side is checked when it fires.
+/// Tapping the hotkey three times opens settings instead. The first two taps
+/// open and cancel the wheel, which is harmless.
 pub fn plugin() -> TauriPlugin<Wry> {
     tauri_plugin_global_shortcut::Builder::new()
         .with_handler(|app, shortcut, event| {
             let pressed = event.state() == ShortcutState::Pressed;
-            let (wheel, settings) = with_bound(app, |b| (b.wheel, b.settings));
-            if pressed && Some(*shortcut) == settings && right_shift_down() {
-                settings::open(app);
-            } else if Some(*shortcut) == wheel {
+            let now = Instant::now();
+            if Some(*shortcut) == with_bound(app, |b| b.wheel) {
                 if pressed {
+                    if with_bound(app, |b| b.taps.press(now)) {
+                        settings::open(app);
+                        return;
+                    }
                     arm(app);
                 } else {
+                    with_bound(app, |b| b.taps.release(now));
                     disarm(app);
                 }
                 let _ = app.emit("hotkey", pressed);
@@ -122,7 +133,6 @@ pub fn pause(app: &AppHandle) {
     let _ = app.global_shortcut().unregister_all();
     with_bound(app, |b| {
         b.wheel = None;
-        b.settings = None;
         b.armed.clear();
     });
 }
@@ -135,31 +145,19 @@ pub fn resume(app: &AppHandle) {
     }
 }
 
-/// Replaces whatever is registered with `hotkey` and its settings shortcut.
+/// Replaces whatever is registered with `hotkey`.
 ///
 /// The lock is never held across plugin calls: those run on the main thread,
 /// which is also where the shortcut handler takes the lock.
 fn register(app: &AppHandle, hotkey: &str) -> Result<(), String> {
     let wheel: Shortcut = hotkey.parse().map_err(|_| format!("{hotkey} isn't a supported key"))?;
-    let settings = Shortcut::new(Some(wheel.mods | Modifiers::SHIFT), wheel.key);
-
     pause(app);
-    let shortcuts = app.global_shortcut();
-    shortcuts
+    app.global_shortcut()
         .register(wheel)
         .map_err(|_| format!("{hotkey} is already in use by another app"))?;
-    // The wheel works without it, so a taken settings combo is only logged. If
-    // the hotkey already includes Shift, both are the same shortcut.
-    let settings = if settings == wheel || shortcuts.register(settings).is_ok() {
-        Some(settings)
-    } else {
-        eprintln!("can't register the settings shortcut Shift+{hotkey}");
-        None
-    };
-
     with_bound(app, |b| {
         b.wheel = Some(wheel);
-        b.settings = settings;
+        b.taps = Taps::default();
     });
     Ok(())
 }
@@ -167,16 +165,16 @@ fn register(app: &AppHandle, hotkey: &str) -> Result<(), String> {
 /// Takes the quick-bind keys while the hotkey is held. They carry the
 /// hotkey's modifiers: holding Ctrl+Q and pressing T arrives as Ctrl+T.
 fn arm(app: &AppHandle) {
-    let (keys, wheel, settings) = with_bound(app, |b| {
+    let (keys, wheel) = with_bound(app, |b| {
         b.matcher.reset();
-        (b.matcher.keys(), b.wheel, b.settings)
+        (b.matcher.keys(), b.wheel)
     });
     let Some(wheel) = wheel else { return };
     let shortcuts = app.global_shortcut();
     let armed: Vec<Shortcut> = keys
         .into_iter()
         .map(|key| Shortcut::new(Some(wheel.mods), key))
-        .filter(|s| *s != wheel && Some(*s) != settings)
+        .filter(|s| *s != wheel)
         .filter(|s| shortcuts.register(*s).is_ok())
         .collect();
     with_bound(app, |b| b.armed = armed);
@@ -196,15 +194,73 @@ fn with_bound<T>(app: &AppHandle, f: impl FnOnce(&mut Bound) -> T) -> T {
     f(&mut bound)
 }
 
-#[cfg(windows)]
-fn right_shift_down() -> bool {
-    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_RSHIFT};
-    // The high bit is set while the key is down.
-    unsafe { GetAsyncKeyState(i32::from(VK_RSHIFT)) < 0 }
+/// Spots three quick taps of the hotkey in a row.
+///
+/// Normal wheel use doesn't trip it: opening the wheel is a hold-and-flick,
+/// longer than a tap.
+#[derive(Default)]
+struct Taps {
+    /// Quick taps so far in the current run.
+    count: u32,
+    pressed_at: Option<Instant>,
+    released_at: Option<Instant>,
 }
 
-/// Other platforms: no cheap way to tell the sides apart, so either Shift works.
-#[cfg(not(windows))]
-fn right_shift_down() -> bool {
-    true
+impl Taps {
+    /// True when this press completes three taps (the third counts on press, for snappiness).
+    fn press(&mut self, now: Instant) -> bool {
+        if !self.released_at.is_some_and(|r| now - r < TAP_GAP) {
+            self.count = 0;
+        }
+        if self.count >= 2 {
+            *self = Self::default();
+            return true;
+        }
+        self.pressed_at = Some(now);
+        false
+    }
+
+    fn release(&mut self, now: Instant) {
+        let quick = self.pressed_at.take().is_some_and(|p| now - p < TAP_HOLD);
+        self.count = if quick { self.count + 1 } else { 0 };
+        self.released_at = Some(now);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Plays (hold ms, gap ms before the next press) and reports which presses opened settings.
+    fn run(taps: &[(u64, u64)]) -> Vec<bool> {
+        let mut t = Taps::default();
+        let mut now = Instant::now();
+        let mut opened = vec![];
+        for (hold, gap) in taps {
+            opened.push(t.press(now));
+            now += Duration::from_millis(*hold);
+            t.release(now);
+            now += Duration::from_millis(*gap);
+        }
+        opened
+    }
+
+    #[test]
+    fn three_quick_taps_open_settings() {
+        assert_eq!(run(&[(80, 150), (80, 150), (80, 0)]), [false, false, true]);
+        // Counting starts afresh afterwards.
+        let five = [(80, 150), (80, 150), (80, 150), (80, 150), (80, 0)];
+        assert_eq!(run(&five), [false, false, true, false, false]);
+    }
+
+    #[test]
+    fn holds_and_slow_taps_dont() {
+        // Normal wheel use: a hold to flick, then taps.
+        assert_eq!(run(&[(600, 150), (80, 150), (80, 0)]), [false, false, false]);
+        // Too slow between taps.
+        assert_eq!(run(&[(80, 150), (80, 700), (80, 0)]), [false, false, false]);
+        // A hold in the middle resets the run.
+        let reset = [(80, 150), (600, 150), (80, 150), (80, 150), (80, 0)];
+        assert_eq!(run(&reset), [false, false, false, false, true]);
+    }
 }
