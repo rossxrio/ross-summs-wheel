@@ -19,6 +19,8 @@ const bindList = document.getElementById("binds")!;
 const bindsSub = document.getElementById("binds-sub")!;
 const statusElement = document.getElementById("status")!;
 const saveButton = document.getElementById("save") as HTMLButtonElement;
+const overlayButton = document.getElementById("overlay-toggle") as HTMLButtonElement;
+const quitButton = document.getElementById("quit") as HTMLButtonElement;
 
 // ---- State -----------------------------------------------------------------
 
@@ -28,6 +30,8 @@ let saved: Settings = { hotkey: "", quickBinds: [] };
 let draft: Settings = structuredClone(saved);
 let recording: Recording | null = null;
 let saving = false;
+/** The overlay window's visibility; changes apply right away, not on Save. */
+let overlayShown = true;
 /** Shown in the status line until the next change. */
 let notice: { text: string; tone: "error" | "ok" } | null = null;
 
@@ -42,6 +46,15 @@ function render(): void {
   renderHotkey();
   renderBinds();
   renderFooter();
+  renderAppActions();
+}
+
+function renderAppActions(): void {
+  overlayButton.textContent = overlayShown ? "Hide overlay" : "Show overlay";
+  overlayButton.setAttribute("aria-pressed", String(!overlayShown));
+  overlayButton.title = overlayShown
+    ? "Hide the wheel and timers until you show them again (resets on restart)"
+    : "Bring the wheel and timers back";
 }
 
 function renderHotkey(): void {
@@ -172,6 +185,32 @@ async function save(): Promise<void> {
   renderFooter();
 }
 
+async function toggleOverlay(): Promise<void> {
+  overlayButton.disabled = true;
+  try {
+    await backend.setOverlayShown(!overlayShown);
+    overlayShown = !overlayShown;
+    notice = overlayShown
+      ? { text: "Overlay shown", tone: "ok" }
+      : { text: "Overlay hidden · tap the hotkey 3× for settings", tone: "ok" };
+  } catch (err) {
+    notice = { text: String(err), tone: "error" };
+  }
+  overlayButton.disabled = false;
+  render();
+}
+
+async function quit(): Promise<void> {
+  quitButton.disabled = true;
+  try {
+    await backend.quit();
+  } catch (err) {
+    quitButton.disabled = false;
+    notice = { text: String(err), tone: "error" };
+    renderFooter();
+  }
+}
+
 function addBind(): void {
   const used = new Set(draft.quickBinds.map((b) => b.role));
   const role: Role = ROLES.find((r) => !used.has(r)) ?? "TOP";
@@ -252,9 +291,11 @@ bindList.addEventListener("change", (e) => {
 document.getElementById("add")!.addEventListener("click", addBind);
 saveButton.addEventListener("click", () => void save());
 document.getElementById("close")!.addEventListener("click", () => void backend.close());
+overlayButton.addEventListener("click", () => void toggleOverlay());
+quitButton.addEventListener("click", () => void quit());
 
 async function start(): Promise<void> {
-  saved = await backend.getSettings();
+  [saved, overlayShown] = await Promise.all([backend.getSettings(), backend.isOverlayShown()]);
   draft = structuredClone(saved);
   render();
 }

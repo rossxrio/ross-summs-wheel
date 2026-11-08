@@ -23,12 +23,21 @@ export interface SettingsBackend {
   /** Applies and saves; rejects with a message for the user. */
   saveSettings(settings: Settings): Promise<void>;
   close(): Promise<void>;
+  /** Whether the overlay window is showing (hidden = hotkey only opens settings). */
+  isOverlayShown(): Promise<boolean>;
+  /** Hides or shows the overlay for this session. */
+  setOverlayShown(shown: boolean): Promise<void>;
+  /** Exits the whole app. */
+  quit(): Promise<void>;
 }
 
 const tauriSettings: SettingsBackend = {
   getSettings: () => invoke<Settings>("get_settings"),
   saveSettings: (settings) => invoke<void>("save_settings", { settings }),
   close: () => getCurrentWindow().close(),
+  isOverlayShown: () => invoke<boolean>("get_overlay_shown"),
+  setOverlayShown: (shown) => invoke<void>("set_overlay_shown", { shown }),
+  quit: () => invoke<void>("quit_app"),
 };
 
 /** `npm run dev` + /settings.html in a browser: remembers settings until reload. */
@@ -38,12 +47,18 @@ function createPreviewSettings(): SettingsBackend {
     hotkey: "Backquote",
     quickBinds: [{ role: "TOP", spell: "SummonerFlash", keys: ["KeyT", "KeyD"] }],
   };
+  let overlayShown = true;
   return {
     getSettings: async () => structuredClone(settings),
     saveSettings: async (next) => {
       settings = structuredClone(next);
     },
     close: async () => console.info("settings closed"),
+    isOverlayShown: async () => overlayShown,
+    setOverlayShown: async (shown) => {
+      overlayShown = shown;
+    },
+    quit: async () => console.info("app quit"),
   };
 }
 

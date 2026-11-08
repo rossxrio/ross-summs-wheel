@@ -46,7 +46,7 @@ pub fn open(app: &AppHandle) {
 fn build(app: &AppHandle) -> tauri::Result<WebviewWindow> {
     WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("settings.html".into()))
         .title("Summs Wheel Settings")
-        .inner_size(380.0, 470.0)
+        .inner_size(380.0, 506.0)
         .center()
         .resizable(false)
         .maximizable(false)
@@ -71,4 +71,10 @@ pub async fn save_settings(app: AppHandle, settings: Config) -> Result<(), Strin
     config::save(&app, &settings)?;
     tray::show_hotkey(&app, &settings.hotkey);
     Ok(())
+}
+
+/// The settings window's "Quit" button; same as the tray's.
+#[tauri::command]
+pub fn quit_app(app: AppHandle) {
+    app.exit(0);
 }

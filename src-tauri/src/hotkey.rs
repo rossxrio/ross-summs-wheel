@@ -7,6 +7,7 @@
 use crate::{
     config::{Config, DEFAULT_HOTKEY},
     key_watch::{self, Edge, Key, Source},
+    overlay,
     quick_binds::{Matcher, QuickBind},
     settings,
 };
@@ -80,7 +81,8 @@ pub fn watch(app: &AppHandle) {
 /// release picks the role. A completed quick bind is sent as `quick-bind`.
 ///
 /// Tapping the hotkey three times opens settings instead. The first two taps
-/// open and cancel the wheel, which is harmless.
+/// open and cancel the wheel, which is harmless. While the overlay is hidden,
+/// that's all the hotkey does.
 fn on_edge(app: &AppHandle, edge: Edge) {
     let now = Instant::now();
     match edge.key {
@@ -88,6 +90,10 @@ fn on_edge(app: &AppHandle, edge: Edge) {
             if edge.pressed {
                 if with_bound(app, |b| b.taps.press(now)) {
                     settings::open(app);
+                    return;
+                }
+                // Hidden from settings: only the taps above still count.
+                if !overlay::is_shown(app) {
                     return;
                 }
                 arm(app);

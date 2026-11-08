@@ -9,12 +9,14 @@
 use crate::key_watch;
 use serde::Deserialize;
 use std::sync::Mutex;
-use tauri::{App, Manager, PhysicalPosition, State, WebviewWindow};
+use tauri::{App, AppHandle, Manager, PhysicalPosition, State, WebviewWindow};
+
+const LABEL: &str = "overlay";
 
 /// Stretches the overlay over the primary monitor and makes it click-through.
 pub fn setup(app: &App) -> tauri::Result<()> {
     let window = app
-        .get_webview_window("overlay")
+        .get_webview_window(LABEL)
         .expect("overlay window in tauri.conf.json");
 
     if let Some(monitor) = window.primary_monitor()? {
@@ -25,6 +27,36 @@ pub fn setup(app: &App) -> tauri::Result<()> {
     window.set_ignore_cursor_events(true)?;
     window.show()?;
     Ok(())
+}
+
+/// False while the user has hidden the overlay from settings. The wheel
+/// hotkey stays registered (three taps still open settings) but doesn't open
+/// the wheel, which would otherwise grab the mouse on an invisible window.
+pub fn is_shown(app: &AppHandle) -> bool {
+    app.get_webview_window(LABEL)
+        .and_then(|w| w.is_visible().ok())
+        .unwrap_or(false)
+}
+
+#[tauri::command]
+pub fn get_overlay_shown(app: AppHandle) -> bool {
+    is_shown(&app)
+}
+
+/// Hides or shows the overlay for this session; it's always shown at startup.
+#[tauri::command]
+pub fn set_overlay_shown(app: AppHandle, shown: bool) -> Result<(), String> {
+    let window = app.get_webview_window(LABEL).ok_or("overlay window is gone")?;
+    let apply = || -> tauri::Result<()> {
+        // Never leave a hidden window holding the mouse.
+        window.set_ignore_cursor_events(true)?;
+        if shown {
+            window.show()
+        } else {
+            window.hide()
+        }
+    };
+    apply().map_err(|e| e.to_string())
 }
 
 /// Where the cursor was before the wheel opened, in screen coordinates.

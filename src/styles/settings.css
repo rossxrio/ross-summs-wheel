@@ -33,7 +33,7 @@ body.preview {
 
 body.preview .card {
   width: 380px;
-  height: 470px;
+  height: 506px;
 }
 
 .card {
@@ -332,6 +332,43 @@ footer {
 
 .save:disabled {
   opacity: 0.3;
+  cursor: default;
+}
+
+/* ---- App actions (act immediately, not part of Save) ---- */
+
+.app-actions {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 10px;
+}
+
+.app-action {
+  padding: 4px 8px;
+  border-radius: 5px;
+  font-size: 11px;
+  color: var(--muted);
+  transition:
+    color 120ms,
+    background 120ms;
+}
+
+.app-action:hover:not(:disabled) {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.app-action[aria-pressed="true"] {
+  color: var(--accent);
+}
+
+.app-action.quit:hover:not(:disabled) {
+  color: var(--error);
+  background: rgba(248, 113, 113, 0.08);
+}
+
+.app-action:disabled {
+  opacity: 0.4;
   cursor: default;
 }
 

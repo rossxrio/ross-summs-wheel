@@ -27,8 +27,11 @@ fn main() {
             riot::ddragon::get_spell_data,
             riot::live_client::get_game_state,
             overlay::set_wheel,
+            overlay::get_overlay_shown,
+            overlay::set_overlay_shown,
             settings::get_settings,
-            settings::save_settings
+            settings::save_settings,
+            settings::quit_app
         ])
         .setup(|app| {
             let cfg = config::load(app.handle());
