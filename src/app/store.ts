@@ -64,6 +64,16 @@ export class Store {
     this.timers.start(role, spellId, this.baseCooldownOf(role, spellId), agoSec, this.hasteOf(role));
   }
 
+  /**
+   * A pick from the wheel or a quick bind. Picking a spell that's still on
+   * cooldown takes its timer away: the enemy can't have used it again yet, so
+   * it was marked by mistake. Once it's back up, a pick starts a new timer.
+   */
+  pickTimer(role: Role, spellId: string): void {
+    if (this.timers.isRunning(role, spellId)) this.timers.remove(role, spellId);
+    else this.startTimer(role, spellId);
+  }
+
   /** Moves time forward by `dtSec` real seconds. */
   advance(dtSec: number): void {
     this.timers.advance(dtSec, this.hasteOf);

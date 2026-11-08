@@ -23,7 +23,7 @@ export class Timers {
   private timers = new Map<string, Timer>();
 
   /**
-   * Starts (or restarts, on a re-pick) the cooldown for one enemy spell.
+   * Starts (or restarts) the cooldown for one enemy spell.
    * `agoSec`: the spell was used that long ago (a voice command said a moment
    * before it was understood), so that much is already off at `haste`.
    */
@@ -36,6 +36,16 @@ export class Timers {
   restore(role: Role, spellId: string, before: Timer | undefined): void {
     if (before) this.timers.set(key(role, spellId), { ...before });
     else this.timers.delete(key(role, spellId));
+  }
+
+  /** Takes a timer away, e.g. one marked by mistake. */
+  remove(role: Role, spellId: string): void {
+    this.timers.delete(key(role, spellId));
+  }
+
+  /** Whether this spell is still on cooldown (not back up, not untracked). */
+  isRunning(role: Role, spellId: string): boolean {
+    return this.get(role, spellId)?.readyAt === null;
   }
 
   get(role: Role, spellId: string): Timer | undefined {

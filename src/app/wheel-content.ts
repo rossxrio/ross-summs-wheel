@@ -41,7 +41,7 @@ function spellItem(store: Store, role: Role, spellId: string): WheelItem {
     key: spellId,
     label: isUnleashedTeleport(raw) ? "Unleashed TP" : (store.spellData.spells[spellId]?.name ?? spellId),
     icon: spellIcon(store.spellData, spellId),
-    sub: left > 0 ? `${formatTime(left)} left · repick resets` : `${formatTime(cooldown)} cooldown`,
+    sub: left > 0 ? `${formatTime(left)} left · pick to clear` : `${formatTime(cooldown)} cooldown`,
   };
 }
 

@@ -34,7 +34,7 @@ const wheel = new WheelController({
     redraw();
   },
   commit: (role, spellId) => {
-    store.startTimer(role, spellId);
+    store.pickTimer(role, spellId);
     redraw();
   },
   render: (view) => wheelRenderer.render(view),
@@ -108,7 +108,7 @@ async function start(): Promise<void> {
     wheel.dismiss();
     // Same rule as the wheel: only spells this enemy actually has.
     if (!spellIdsOf(store, role).includes(spell)) return;
-    store.startTimer(role, spell);
+    store.pickTimer(role, spell);
     redraw();
   });
   await backend.onVoiceListening((on) => voiceToast.listening(on));
