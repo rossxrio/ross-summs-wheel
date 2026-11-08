@@ -34,6 +34,13 @@ const voiceModel = document.getElementById("voice-model") as HTMLSelectElement;
 const voiceDownload = document.getElementById("voice-download") as HTMLButtonElement;
 const voiceTestButton = document.getElementById("voice-test") as HTMLButtonElement;
 const voiceSub = document.getElementById("voice-sub")!;
+const tabs = document.getElementById("tabs")!;
+const bindsCount = document.getElementById("binds-count")!;
+const voiceLive = document.getElementById("voice-live")!;
+
+const ICON_X = `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>`;
+const ICON_EYE = `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8 12.1 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></svg>`;
+const ICON_EYE_OFF = `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.6 3.7A6.6 6.6 0 0 1 8 3.5c4.1 0 6.5 4.5 6.5 4.5a11 11 0 0 1-1.7 2.3M10.2 11.9A5.8 5.8 0 0 1 8 12.5C3.9 12.5 1.5 8 1.5 8a11.3 11.3 0 0 1 2.8-3.2M2 2l12 12"/></svg>`;
 
 // ---- State -----------------------------------------------------------------
 
@@ -57,6 +64,28 @@ let download: DownloadProgress | null = null;
 let voiceNote: { text: string; tone: "error" | "ok" | "" } | null = null;
 let testing = false;
 
+type Tab = "binds" | "voice";
+const TAB_KEY = "settings.tab";
+/** Which panel shows; remembered between openings (a convenience, so storage may fail). */
+let tab: Tab = (() => {
+  try {
+    return localStorage.getItem(TAB_KEY) === "voice" ? "voice" : "binds";
+  } catch {
+    return "binds";
+  }
+})();
+
+function showTab(next: Tab): void {
+  if (next === tab) return;
+  tab = next;
+  try {
+    localStorage.setItem(TAB_KEY, tab);
+  } catch {
+    // Not remembered; that's fine.
+  }
+  renderTabs();
+}
+
 const isDirty = () => JSON.stringify(draft) !== JSON.stringify(saved);
 
 // ---- Rendering ---------------------------------------------------------------
@@ -70,6 +99,21 @@ function render(): void {
   renderVoice();
   renderFooter();
   renderAppActions();
+  renderTabs();
+}
+
+function renderTabs(): void {
+  tabs.dataset.active = tab;
+  for (const button of tabs.querySelectorAll<HTMLElement>("[data-tab]")) {
+    const selected = button.dataset.tab === tab;
+    button.setAttribute("aria-selected", String(selected));
+    button.tabIndex = selected ? 0 : -1;
+    document.getElementById(button.getAttribute("aria-controls")!)!.hidden = !selected;
+  }
+  const count = draft.quickBinds.length;
+  bindsCount.textContent = count ? String(count) : "";
+  bindsCount.classList.toggle("problem", !recording && (findProblem(draft)?.rows.length ?? 0) > 0);
+  voiceLive.classList.toggle("on", draft.voice.enabled);
 }
 
 const voiceChanged = () => JSON.stringify(draft.voice) !== JSON.stringify(saved.voice);
@@ -135,11 +179,12 @@ function describeTest(text: string, words: Parameters<typeof parseVoice>[0], dec
 }
 
 function renderAppActions(): void {
-  overlayButton.textContent = overlayShown ? "Hide overlay" : "Show overlay";
+  overlayButton.innerHTML = overlayShown ? ICON_EYE : ICON_EYE_OFF;
+  overlayButton.setAttribute("aria-label", overlayShown ? "Hide overlay" : "Show overlay");
   overlayButton.setAttribute("aria-pressed", String(!overlayShown));
   overlayButton.title = overlayShown
-    ? "Hide the wheel and timers until you show them again (resets on restart)"
-    : "Bring the wheel and timers back";
+    ? "Hide overlay: the wheel and timers stay hidden until you show them again (resets on restart)"
+    : "Overlay hidden: click to bring the wheel and timers back";
 }
 
 function renderHotkey(): void {
@@ -178,11 +223,11 @@ function renderBinds(): void {
                 bind.spell,
               )}</select>
               <button class="keys${isRecording ? " recording" : ""}" data-action="record" title="Click to record">${keys}</button>
-              <button class="remove" data-action="remove" aria-label="Remove">&times;</button>
+              <button class="remove" data-action="remove" aria-label="Remove" title="Remove">${ICON_X}</button>
             </li>`;
         })
         .join("")
-    : `<li class="empty">No quick binds yet</li>`;
+    : `<li class="empty"><strong>No quick binds yet</strong>Start a timer with a few keys, no wheel needed</li>`;
 }
 
 function renderFooter(): void {
@@ -314,6 +359,7 @@ async function quit(): Promise<void> {
 function addBind(): void {
   const used = new Set(draft.quickBinds.map((b) => b.role));
   const role: Role = ROLES.find((r) => !used.has(r)) ?? "TOP";
+  showTab("binds");
   draft.quickBinds.push({ role, spell: "SummonerFlash", keys: [] });
   startRecording({ kind: "bind", index: draft.quickBinds.length - 1, before: [] });
   bindList.lastElementChild?.scrollIntoView({ block: "nearest" });
@@ -391,6 +437,19 @@ bindList.addEventListener("change", (e) => {
   else bind.spell = select.value;
   notice = null;
   render();
+});
+
+tabs.addEventListener("click", (e) => {
+  const button = (e.target as Element).closest<HTMLElement>("[data-tab]");
+  if (button) showTab(button.dataset.tab as Tab);
+});
+
+// Arrow keys move between tabs, as in any tab list.
+tabs.addEventListener("keydown", (e) => {
+  if (e.code !== "ArrowLeft" && e.code !== "ArrowRight") return;
+  e.preventDefault();
+  showTab(tab === "binds" ? "voice" : "binds");
+  tabs.querySelector<HTMLElement>(`[data-tab="${tab}"]`)?.focus();
 });
 
 document.getElementById("add")!.addEventListener("click", addBind);
