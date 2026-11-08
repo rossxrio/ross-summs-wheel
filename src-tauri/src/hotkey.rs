@@ -1,11 +1,12 @@
 //! Global shortcuts:
-//! - the wheel hotkey,
+//! - the wheel hotkey (seen through the plugin and the backups in key_watch.rs),
 //! - three quick taps of the hotkey, which open the settings window,
 //! - quick-bind keys, registered only while the hotkey is held so they reach
 //!   the game normally the rest of the time.
 
 use crate::{
     config::{Config, DEFAULT_HOTKEY},
+    key_watch::{self, Edge, Key, Source},
     quick_binds::{Matcher, QuickBind},
     settings,
 };
@@ -14,9 +15,9 @@ use std::{
     time::{Duration, Instant},
 };
 use tauri::{plugin::TauriPlugin, AppHandle, Emitter, Manager, Wry};
-use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
+use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Shortcut, ShortcutState};
 
-/// A press shorter than this counts as a tap (release is polled every 50ms).
+/// A press shorter than this counts as a tap.
 const TAP_HOLD: Duration = Duration::from_millis(250);
 /// Taps further apart than this (release to next press) don't add up.
 const TAP_GAP: Duration = Duration::from_millis(400);
@@ -34,8 +35,44 @@ struct Bound {
     /// `None` while paused (settings window open).
     wheel: Option<Shortcut>,
     taps: Taps,
-    /// Quick-bind keys, registered while the wheel hotkey is held.
+    /// Quick-bind keys taken while the wheel hotkey is held.
+    armed_keys: Vec<Code>,
+    /// The ones the plugin managed to register (the backups watch them all).
     armed: Vec<Shortcut>,
+}
+
+/// Every way of seeing the keys (this plugin and the backups in key_watch.rs)
+/// reports to `key_watch`, which passes each real press and release on to
+/// `on_edge` exactly once.
+pub fn plugin() -> TauriPlugin<Wry> {
+    tauri_plugin_global_shortcut::Builder::new()
+        .with_handler(|app, shortcut, event| {
+            let pressed = event.state() == ShortcutState::Pressed;
+            let key = with_bound(app, |b| {
+                if Some(*shortcut) == b.wheel {
+                    Some(Key::Wheel)
+                } else if b.armed.contains(shortcut) {
+                    Some(Key::Quick(shortcut.key))
+                } else {
+                    None
+                }
+            });
+            if let Some(key) = key {
+                key_watch::report(key, pressed, Source::Shortcut);
+            }
+        })
+        .build()
+}
+
+/// Starts the backup key sources. Call before `init`.
+pub fn watch(app: &AppHandle) {
+    let log_path = app.path().app_config_dir().ok().map(|dir| dir.join("input.log"));
+    let handle = app.clone();
+    key_watch::init(log_path, move |edge| {
+        // Edges come from several threads; handle them in order on the main one.
+        let app = handle.clone();
+        let _ = handle.run_on_main_thread(move || on_edge(&app, edge));
+    });
 }
 
 /// The wheel hotkey is forwarded to the frontend as a `hotkey` event: `true`
@@ -44,36 +81,32 @@ struct Bound {
 ///
 /// Tapping the hotkey three times opens settings instead. The first two taps
 /// open and cancel the wheel, which is harmless.
-pub fn plugin() -> TauriPlugin<Wry> {
-    tauri_plugin_global_shortcut::Builder::new()
-        .with_handler(|app, shortcut, event| {
-            let pressed = event.state() == ShortcutState::Pressed;
-            let now = Instant::now();
-            if Some(*shortcut) == with_bound(app, |b| b.wheel) {
-                if pressed {
-                    if with_bound(app, |b| b.taps.press(now)) {
-                        settings::open(app);
-                        return;
-                    }
-                    arm(app);
-                } else {
-                    with_bound(app, |b| b.taps.release(now));
-                    disarm(app);
+fn on_edge(app: &AppHandle, edge: Edge) {
+    let now = Instant::now();
+    match edge.key {
+        Key::Wheel => {
+            if edge.pressed {
+                if with_bound(app, |b| b.taps.press(now)) {
+                    settings::open(app);
+                    return;
                 }
-                let _ = app.emit("hotkey", pressed);
-            } else if pressed {
-                let hit = with_bound(app, |b| {
-                    b.armed
-                        .contains(shortcut)
-                        .then(|| b.matcher.push(shortcut.key))
-                        .flatten()
-                });
-                if let Some(target) = hit {
-                    let _ = app.emit("quick-bind", target);
-                }
+                arm(app);
+            } else {
+                with_bound(app, |b| b.taps.release(now));
+                disarm(app);
             }
-        })
-        .build()
+            let _ = app.emit("hotkey", edge.pressed);
+        }
+        Key::Quick(code) if edge.pressed => {
+            let hit = with_bound(app, |b| {
+                b.armed_keys.contains(&code).then(|| b.matcher.push(code)).flatten()
+            });
+            if let Some(target) = hit {
+                let _ = app.emit("quick-bind", target);
+            }
+        }
+        Key::Quick(_) => {}
+    }
 }
 
 /// Registers the configured hotkey at startup and returns a label for the tray tooltip.
@@ -134,7 +167,10 @@ pub fn pause(app: &AppHandle) {
     with_bound(app, |b| {
         b.wheel = None;
         b.armed.clear();
+        b.armed_keys.clear();
     });
+    key_watch::set_wheel(None);
+    key_watch::set_armed(vec![]);
 }
 
 /// Registers the hotkey in use again after `pause`.
@@ -152,13 +188,16 @@ pub fn resume(app: &AppHandle) {
 fn register(app: &AppHandle, hotkey: &str) -> Result<(), String> {
     let wheel: Shortcut = hotkey.parse().map_err(|_| format!("{hotkey} isn't a supported key"))?;
     pause(app);
-    app.global_shortcut()
-        .register(wheel)
-        .map_err(|_| format!("{hotkey} is already in use by another app"))?;
+    if key_watch::enabled(Source::Shortcut) {
+        app.global_shortcut()
+            .register(wheel)
+            .map_err(|_| format!("{hotkey} is already in use by another app"))?;
+    }
     with_bound(app, |b| {
         b.wheel = Some(wheel);
         b.taps = Taps::default();
     });
+    key_watch::set_wheel(Some(wheel));
     Ok(())
 }
 
@@ -170,19 +209,27 @@ fn arm(app: &AppHandle) {
         (b.matcher.keys(), b.wheel)
     });
     let Some(wheel) = wheel else { return };
+    let keys: Vec<Code> = keys.into_iter().filter(|key| *key != wheel.key).collect();
     let shortcuts = app.global_shortcut();
     let armed: Vec<Shortcut> = keys
-        .into_iter()
-        .map(|key| Shortcut::new(Some(wheel.mods), key))
-        .filter(|s| *s != wheel)
-        .filter(|s| shortcuts.register(*s).is_ok())
+        .iter()
+        .map(|key| Shortcut::new(Some(wheel.mods), *key))
+        .filter(|s| key_watch::enabled(Source::Shortcut) && shortcuts.register(*s).is_ok())
         .collect();
-    with_bound(app, |b| b.armed = armed);
+    key_watch::set_armed(keys.clone());
+    with_bound(app, |b| {
+        b.armed = armed;
+        b.armed_keys = keys;
+    });
 }
 
 /// Gives the quick-bind keys back to the game.
 fn disarm(app: &AppHandle) {
-    let armed = with_bound(app, |b| std::mem::take(&mut b.armed));
+    key_watch::set_armed(vec![]);
+    let armed = with_bound(app, |b| {
+        b.armed_keys.clear();
+        std::mem::take(&mut b.armed)
+    });
     if !armed.is_empty() {
         let _ = app.global_shortcut().unregister_multiple(armed);
     }

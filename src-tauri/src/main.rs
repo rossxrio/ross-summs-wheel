@@ -10,6 +10,7 @@
 
 mod config;
 mod hotkey;
+mod key_watch;
 mod overlay;
 mod quick_binds;
 mod riot;
@@ -31,6 +32,7 @@ fn main() {
         ])
         .setup(|app| {
             let cfg = config::load(app.handle());
+            hotkey::watch(app.handle());
             let hotkey_label = hotkey::init(app.handle(), &cfg);
             tray::build(app, &hotkey_label)?;
             overlay::setup(app)?;

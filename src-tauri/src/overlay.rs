@@ -6,6 +6,7 @@
 //! Don't set that style by hand: Tauri recomputes the extended styles whenever
 //! click-through is toggled and would drop it.
 
+use crate::key_watch;
 use serde::Deserialize;
 use std::sync::Mutex;
 use tauri::{App, Manager, PhysicalPosition, State, WebviewWindow};
@@ -52,6 +53,8 @@ pub fn set_wheel(window: WebviewWindow, saved: State<'_, SavedCursor>, mode: Whe
             WheelMode::Open => {
                 *saved.0.lock().unwrap() = Some(window.cursor_position()?);
                 window.set_ignore_cursor_events(false)?;
+                // A borderless game can end up above the overlay.
+                key_watch::bring_to_top(&window);
                 center_cursor(&window)?;
             }
             WheelMode::Recenter => center_cursor(&window)?,
