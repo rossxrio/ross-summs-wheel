@@ -16,12 +16,19 @@
 //! global shortcut: it's watched, not taken, so it still reaches the game and
 //! can double as Discord's push-to-talk key.
 //!
+//! Mouse side buttons (see [`Button`]) can't be global shortcuts at all, so
+//! they're seen only here: a low-level mouse hook, installed only while some
+//! binding uses one, and polling.
+//!
 //! Every source reports to one [`Tracker`], which turns the overlapping
 //! reports into a single press and a single release per key. The rest of the
 //! app sees only those edges, via the sink given to [`init`].
 
+mod button;
 #[cfg(windows)]
 mod windows;
+
+pub use button::{Button, Hotkey};
 
 use std::{
     collections::HashMap,
@@ -31,7 +38,6 @@ use std::{
     sync::{LazyLock, Mutex, OnceLock},
     time::{Duration, Instant},
 };
-use tauri_plugin_global_shortcut::{Code, Shortcut};
 
 /// After an event source reports a key, polling keeps quiet about that key
 /// for this long. The hook runs before Windows updates the key state that
@@ -43,8 +49,8 @@ const POLL_QUIET: Duration = Duration::from_millis(150);
 pub enum Key {
     /// The wheel hotkey.
     Wheel,
-    /// A quick-bind key, while the wheel hotkey is held.
-    Quick(Code),
+    /// A quick-bind key or button, while the wheel hotkey is held.
+    Quick(Button),
     /// The push-to-talk key for voice commands.
     Voice,
 }
@@ -54,7 +60,7 @@ pub enum Key {
 pub enum Source {
     /// The global-shortcut plugin (`RegisterHotKey`).
     Shortcut,
-    /// The low-level keyboard hook.
+    /// The low-level keyboard or mouse hook.
     Hook,
     /// Raw Input.
     RawInput,
@@ -74,11 +80,20 @@ pub struct Edge {
 #[derive(Clone, Default)]
 pub struct Target {
     /// The wheel hotkey, `None` while paused.
-    pub wheel: Option<Shortcut>,
+    pub wheel: Option<Hotkey>,
     /// Quick-bind keys, non-empty only while the wheel hotkey is held.
-    pub armed: Vec<Code>,
+    pub armed: Vec<Button>,
     /// The voice talk key, `None` while voice is off or paused. Any modifiers.
-    pub voice: Option<Code>,
+    pub voice: Option<Button>,
+}
+
+impl Target {
+    /// Whether anything watched is a mouse button (the mouse hook is needed).
+    pub fn uses_mouse(&self) -> bool {
+        self.wheel.is_some_and(|w| w.button.is_mouse())
+            || self.voice.is_some_and(Button::is_mouse)
+            || self.armed.iter().any(|b| b.is_mouse())
+    }
 }
 
 #[derive(Default)]
@@ -122,7 +137,7 @@ impl Tracker {
     fn retain(&mut self, target: &Target) {
         self.keys.retain(|key, _| match key {
             Key::Wheel => target.wheel.is_some(),
-            Key::Quick(code) => target.armed.contains(code),
+            Key::Quick(button) => target.armed.contains(button),
             Key::Voice => target.voice.is_some(),
         });
     }
@@ -201,27 +216,30 @@ pub fn report(key: Key, pressed: bool, source: Source) -> Option<Edge> {
 }
 
 /// Sets the wheel hotkey to watch (`None` while paused).
-pub fn set_wheel(wheel: Option<Shortcut>) {
-    let mut shared = SHARED.lock().unwrap();
-    shared.target.wheel = wheel;
-    let Shared { tracker, target } = &mut *shared;
-    tracker.retain(target);
+pub fn set_wheel(wheel: Option<Hotkey>) {
+    set_target(|t| t.wheel = wheel);
 }
 
 /// Sets the quick-bind keys to watch (empty when the hotkey is released).
-pub fn set_armed(armed: Vec<Code>) {
-    let mut shared = SHARED.lock().unwrap();
-    shared.target.armed = armed;
-    let Shared { tracker, target } = &mut *shared;
-    tracker.retain(target);
+pub fn set_armed(armed: Vec<Button>) {
+    set_target(|t| t.armed = armed);
 }
 
 /// Sets the voice talk key to watch (`None` while voice is off or paused).
-pub fn set_voice(voice: Option<Code>) {
-    let mut shared = SHARED.lock().unwrap();
-    shared.target.voice = voice;
-    let Shared { tracker, target } = &mut *shared;
-    tracker.retain(target);
+pub fn set_voice(voice: Option<Button>) {
+    set_target(|t| t.voice = voice);
+}
+
+fn set_target(change: impl FnOnce(&mut Target)) {
+    {
+        let mut shared = SHARED.lock().unwrap();
+        let Shared { tracker, target } = &mut *shared;
+        change(target);
+        tracker.retain(target);
+    }
+    // The mouse hook comes and goes with mouse bindings.
+    #[cfg(windows)]
+    windows::target_changed();
 }
 
 /// A copy of what to watch, plus whether the wheel key is currently down.
@@ -297,6 +315,7 @@ pub mod log {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tauri_plugin_global_shortcut::Code;
 
     fn ms(start: Instant, n: u64) -> Instant {
         start + Duration::from_millis(n)
@@ -344,11 +363,10 @@ mod tests {
     fn unwatched_keys_are_forgotten() {
         let t0 = Instant::now();
         let mut t = Tracker::default();
-        t.report(Key::Quick(Code::KeyT), true, Source::Hook, ms(t0, 0));
+        let t_key = Key::Quick(Button::Key(Code::KeyT));
+        t.report(t_key, true, Source::Hook, ms(t0, 0));
         t.retain(&Target::default());
         // Without the reset this press would look like a repeat.
-        assert!(t
-            .report(Key::Quick(Code::KeyT), true, Source::Hook, ms(t0, 5))
-            .is_some());
+        assert!(t.report(t_key, true, Source::Hook, ms(t0, 5)).is_some());
     }
 }

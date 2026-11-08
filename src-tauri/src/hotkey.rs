@@ -4,12 +4,15 @@
 //! - quick-bind keys, registered only while the hotkey is held so they reach
 //!   the game normally the rest of the time,
 //! - the voice talk key, only watched (key_watch.rs), never registered.
+//!
+//! Any of these can be mouse button 4 or 5 instead of a key. The plugin can't
+//! register those, so they're seen by key_watch's backup sources alone.
 
 use crate::{
     config::{Config, DEFAULT_HOTKEY},
-    key_watch::{self, Edge, Key, Source},
+    key_watch::{self, Button, Edge, Hotkey, Key, Source},
     overlay,
-    quick_binds::{self, Matcher, QuickBind},
+    quick_binds::{Matcher, QuickBind},
     settings,
     voice::{self, VoiceConfig},
 };
@@ -18,7 +21,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tauri::{plugin::TauriPlugin, AppHandle, Emitter, Manager, Wry};
-use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Shortcut, ShortcutState};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 /// A press shorter than this counts as a tap.
 const TAP_HOLD: Duration = Duration::from_millis(250);
@@ -37,10 +40,10 @@ struct Bound {
     matcher: Matcher,
     voice: VoiceConfig,
     /// `None` while paused (settings window open).
-    wheel: Option<Shortcut>,
+    wheel: Option<Hotkey>,
     taps: Taps,
     /// Quick-bind keys taken while the wheel hotkey is held.
-    armed_keys: Vec<Code>,
+    armed_keys: Vec<Button>,
     /// The ones the plugin managed to register (the backups watch them all).
     armed: Vec<Shortcut>,
 }
@@ -53,10 +56,10 @@ pub fn plugin() -> TauriPlugin<Wry> {
         .with_handler(|app, shortcut, event| {
             let pressed = event.state() == ShortcutState::Pressed;
             let key = with_bound(app, |b| {
-                if Some(*shortcut) == b.wheel {
+                if Some(*shortcut) == b.wheel.and_then(Hotkey::shortcut) {
                     Some(Key::Wheel)
                 } else if b.armed.contains(shortcut) {
-                    Some(Key::Quick(shortcut.key))
+                    Some(Key::Quick(Button::Key(shortcut.key)))
                 } else {
                     None
                 }
@@ -108,9 +111,9 @@ fn on_edge(app: &AppHandle, edge: Edge, at: Instant) {
             }
             let _ = app.emit("hotkey", edge.pressed);
         }
-        Key::Quick(code) if edge.pressed => {
+        Key::Quick(button) if edge.pressed => {
             let hit = with_bound(app, |b| {
-                b.armed_keys.contains(&code).then(|| b.matcher.push(code)).flatten()
+                b.armed_keys.contains(&button).then(|| b.matcher.push(button)).flatten()
             });
             if let Some(target) = hit {
                 let _ = app.emit("quick-bind", target);
@@ -161,7 +164,7 @@ pub fn init(app: &AppHandle, cfg: &Config) -> String {
 pub fn apply(app: &AppHandle, cfg: &Config) -> Result<(), String> {
     let matcher = Matcher::new(&cfg.quick_binds)?;
     if !cfg.voice.key.is_empty() {
-        quick_binds::parse_key(&cfg.voice.key).map_err(|_| format!("{} can't be the talk key", cfg.voice.key))?;
+        (cfg.voice.key.parse::<Button>()).map_err(|_| format!("{} can't be the talk key", cfg.voice.key))?;
     }
     register(app, &cfg.hotkey)?;
     with_bound(app, |b| {
@@ -212,7 +215,7 @@ fn watch_voice(app: &AppHandle) {
         let v = &b.voice;
         (v.enabled && !v.key.is_empty()).then(|| v.key.clone())
     });
-    key_watch::set_voice(key.and_then(|k| quick_binds::parse_key(&k).ok()));
+    key_watch::set_voice(key.and_then(|k| k.parse::<Button>().ok()));
 }
 
 /// Replaces whatever is registered with `hotkey`.
@@ -220,11 +223,12 @@ fn watch_voice(app: &AppHandle) {
 /// The lock is never held across plugin calls: those run on the main thread,
 /// which is also where the shortcut handler takes the lock.
 fn register(app: &AppHandle, hotkey: &str) -> Result<(), String> {
-    let wheel: Shortcut = hotkey.parse().map_err(|_| format!("{hotkey} isn't a supported key"))?;
+    let wheel: Hotkey = hotkey.parse().map_err(|_| format!("{hotkey} isn't a supported key"))?;
     pause(app);
-    if key_watch::enabled(Source::Shortcut) {
+    // A mouse button has no shortcut: the backups alone watch it.
+    if let Some(shortcut) = wheel.shortcut().filter(|_| key_watch::enabled(Source::Shortcut)) {
         app.global_shortcut()
-            .register(wheel)
+            .register(shortcut)
             .map_err(|_| format!("{hotkey} is already in use by another app"))?;
     }
     with_bound(app, |b| {
@@ -237,17 +241,21 @@ fn register(app: &AppHandle, hotkey: &str) -> Result<(), String> {
 
 /// Takes the quick-bind keys while the hotkey is held. They carry the
 /// hotkey's modifiers: holding Ctrl+Q and pressing T arrives as Ctrl+T.
+/// Mouse buttons in binds are taken by the mouse hook instead.
 fn arm(app: &AppHandle) {
     let (keys, wheel) = with_bound(app, |b| {
         b.matcher.reset();
         (b.matcher.keys(), b.wheel)
     });
     let Some(wheel) = wheel else { return };
-    let keys: Vec<Code> = keys.into_iter().filter(|key| *key != wheel.key).collect();
+    let keys: Vec<Button> = keys.into_iter().filter(|key| *key != wheel.button).collect();
     let shortcuts = app.global_shortcut();
     let armed: Vec<Shortcut> = keys
         .iter()
-        .map(|key| Shortcut::new(Some(wheel.mods), *key))
+        .filter_map(|key| match key {
+            Button::Key(code) => Some(Shortcut::new(Some(wheel.mods), *code)),
+            _ => None,
+        })
         .filter(|s| key_watch::enabled(Source::Shortcut) && shortcuts.register(*s).is_ok())
         .collect();
     key_watch::set_armed(keys.clone());

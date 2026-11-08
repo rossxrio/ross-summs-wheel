@@ -1,14 +1,14 @@
-//! The Windows input sources: a low-level keyboard hook, Raw Input and
-//! key-state polling, all on one thread with its own message loop.
+//! The Windows input sources: low-level keyboard and mouse hooks, Raw Input
+//! and key-state polling, all on one thread with its own message loop.
 
-use super::{log, report, snapshot, Key, Source};
+use super::{log, report, snapshot, Button, Key, Source};
 use std::{
     cell::Cell,
     ffi::c_void,
     mem::{size_of, zeroed},
     os::windows::ffi::OsStrExt,
     ptr::{null, null_mut},
-    sync::atomic::{AtomicBool, Ordering},
+    sync::atomic::{AtomicBool, AtomicPtr, Ordering},
 };
 use tauri_plugin_global_shortcut::{Code, Modifiers};
 use windows_sys::Win32::{
@@ -30,10 +30,11 @@ use windows_sys::Win32::{
         Shell::ShellExecuteW,
         WindowsAndMessaging::{
             CallNextHookEx, CreateWindowExW, DefWindowProcW, DispatchMessageW, GetForegroundWindow, GetMessageW,
-            GetWindowThreadProcessId, RegisterClassExW, SetTimer, SetWindowPos, SetWindowsHookExW, UnhookWindowsHookEx,
-            HC_ACTION, HHOOK, HWND_MESSAGE, HWND_TOPMOST, KBDLLHOOKSTRUCT, MSG, RI_KEY_BREAK, SWP_NOACTIVATE,
-            SWP_NOMOVE, SWP_NOSIZE, SW_SHOWNORMAL, WH_KEYBOARD_LL, WM_INPUT, WM_KEYDOWN, WM_SYSKEYDOWN, WM_TIMER,
-            WNDCLASSEXW,
+            GetWindowThreadProcessId, PostMessageW, RegisterClassExW, SetTimer, SetWindowPos, SetWindowsHookExW,
+            UnhookWindowsHookEx, HC_ACTION, HHOOK, HWND_MESSAGE, HWND_TOPMOST, KBDLLHOOKSTRUCT, MSG, MSLLHOOKSTRUCT,
+            RI_KEY_BREAK, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SW_SHOWNORMAL, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_APP,
+            WM_INPUT, WM_KEYDOWN, WM_SYSKEYDOWN, WM_TIMER, WM_XBUTTONDOWN, WM_XBUTTONUP, WNDCLASSEXW, XBUTTON1,
+            XBUTTON2,
         },
     },
 };
@@ -44,6 +45,11 @@ const POLL_MS: u32 = 10;
 /// Re-registers Raw Input and, if needed, the hook (see `upkeep`).
 const UPKEEP_TIMER: usize = 2;
 const UPKEEP_MS: u32 = 5000;
+/// Posted by `target_changed`: install or remove the mouse hook.
+const WM_TARGET_CHANGED: u32 = WM_APP + 1;
+
+/// The watcher's message-only window, once it exists.
+static WINDOW: AtomicPtr<c_void> = AtomicPtr::new(null_mut());
 
 /// Set when polling caught a press the hook didn't: the hook is reinstalled
 /// at the next upkeep, in case Windows dropped it.
@@ -51,6 +57,8 @@ static HOOK_SUSPECT: AtomicBool = AtomicBool::new(false);
 
 thread_local! {
     static HOOK: Cell<HHOOK> = const { Cell::new(null_mut()) };
+    /// Installed only while a mouse button is bound (see `sync_mouse_hook`).
+    static MOUSE_HOOK: Cell<HHOOK> = const { Cell::new(null_mut()) };
     /// The previous poll's reading of the wheel key.
     static LAST_POLL: Cell<bool> = const { Cell::new(false) };
     /// The same for the voice talk key.
@@ -108,6 +116,8 @@ unsafe fn run() {
 
     log::line(&format!("raw input: {}", ok(register_raw_input(hwnd))));
     log::line(&format!("keyboard hook: {}", ok(install_hook())));
+    WINDOW.store(hwnd, Ordering::Release);
+    sync_mouse_hook();
     let polling = SetTimer(hwnd, POLL_TIMER, POLL_MS, None) != 0;
     log::line(&format!("key polling: {}", ok(polling)));
     SetTimer(hwnd, UPKEEP_TIMER, UPKEEP_MS, None);
@@ -131,6 +141,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
         WM_INPUT => raw_input(lparam as HRAWINPUT),
         WM_TIMER if wparam == POLL_TIMER => poll(),
         WM_TIMER if wparam == UPKEEP_TIMER => upkeep(hwnd),
+        WM_TARGET_CHANGED => sync_mouse_hook(),
         _ => {}
     }
     // WM_INPUT must reach DefWindowProc too, so Windows can clean up.
@@ -159,6 +170,61 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
             // A quick-bind key while the wheel is held: keep it from the game,
             // as the global shortcut does when it works.
             return 1;
+        }
+    }
+    CallNextHookEx(null_mut(), code, wparam, lparam)
+}
+
+// ---- Source 1b: low-level mouse hook (side buttons only) --------------------
+
+/// Called from any thread when what to watch changes; the watcher thread
+/// owns the hooks, so it's asked to do the work.
+pub fn target_changed() {
+    let hwnd = WINDOW.load(Ordering::Acquire);
+    if !hwnd.is_null() {
+        unsafe { PostMessageW(hwnd, WM_TARGET_CHANGED, 0, 0) };
+    }
+}
+
+/// Installs the mouse hook while a mouse button is bound, and removes it
+/// otherwise, so the rest of the time every mouse move skips this app.
+unsafe fn sync_mouse_hook() {
+    let wanted = snapshot().0.uses_mouse();
+    let hook = MOUSE_HOOK.get();
+    if wanted && hook.is_null() {
+        log::line(&format!("mouse hook: {}", ok(install_mouse_hook())));
+    } else if !wanted && !hook.is_null() {
+        UnhookWindowsHookEx(hook);
+        MOUSE_HOOK.set(null_mut());
+        log::line("mouse hook: off (no mouse buttons bound)");
+    }
+}
+
+unsafe fn install_mouse_hook() -> bool {
+    let old = MOUSE_HOOK.get();
+    if !old.is_null() {
+        UnhookWindowsHookEx(old);
+    }
+    let hook = SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_hook_proc), GetModuleHandleW(null()), 0);
+    MOUSE_HOOK.set(hook);
+    !hook.is_null()
+}
+
+/// Runs for every mouse event in the system, moves included, so it does
+/// nothing but compare numbers unless a side button changed.
+unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    let msg = wparam as u32;
+    if code == HC_ACTION as i32 && matches!(msg, WM_XBUTTONDOWN | WM_XBUTTONUP) {
+        let mouse = &*(lparam as *const MSLLHOOKSTRUCT);
+        let vk = match (mouse.mouseData >> 16) as u16 {
+            XBUTTON1 => Some(VK_XBUTTON1),
+            XBUTTON2 => Some(VK_XBUTTON2),
+            _ => None,
+        };
+        if let Some(vk) = vk {
+            if on_key(u32::from(vk), msg == WM_XBUTTONDOWN, Source::Hook) == Action::Swallow {
+                return 1;
+            }
         }
     }
     CallNextHookEx(null_mut(), code, wparam, lparam)
@@ -223,7 +289,7 @@ unsafe fn poll() {
         }
     }
     let Some(wheel) = target.wheel else { return };
-    let Some(vk) = vk_of(wheel.key) else { return };
+    let Some(vk) = vk_of(wheel.button) else { return };
 
     // Modifiers matter for starting a hold, not for keeping it. A release
     // every event source missed shows up here once they've gone quiet, so a
@@ -255,6 +321,9 @@ unsafe fn upkeep(hwnd: HWND) {
     }
     if HOOK_SUSPECT.swap(false, Ordering::Relaxed) {
         log::line(&format!("reinstalling keyboard hook: {}", ok(install_hook())));
+        if !MOUSE_HOOK.get().is_null() {
+            log::line(&format!("reinstalling mouse hook: {}", ok(install_mouse_hook())));
+        }
     }
 }
 
@@ -266,11 +335,11 @@ enum Action {
     Swallow,
 }
 
-/// Routes a key event from the hook or Raw Input to the tracker.
+/// Routes a key or side-button event from a hook or Raw Input to the tracker.
 fn on_key(vk: u32, pressed: bool, source: Source) -> Action {
     let (target, wheel_down) = snapshot();
     if let Some(wheel) = target.wheel {
-        if vk_of(wheel.key) == Some(vk) {
+        if vk_of(wheel.button) == Some(vk) {
             // A press only counts with the hotkey's exact modifiers, like RegisterHotKey.
             if !pressed || wheel_down || mods_match(wheel.mods) {
                 report(Key::Wheel, pressed, source);
@@ -283,9 +352,9 @@ fn on_key(vk: u32, pressed: bool, source: Source) -> Action {
         report(Key::Voice, pressed, source);
         return Action::Pass;
     }
-    match target.armed.iter().find(|code| vk_of(**code) == Some(vk)) {
-        Some(code) => {
-            report(Key::Quick(*code), pressed, source);
+    match target.armed.iter().find(|button| vk_of(**button) == Some(vk)) {
+        Some(button) => {
+            report(Key::Quick(*button), pressed, source);
             Action::Swallow
         }
         None => Action::Pass,
@@ -305,9 +374,18 @@ fn mods_match(mods: Modifiers) -> bool {
         && mods.intersects(Modifiers::SUPER | Modifiers::META) == win
 }
 
+/// The virtual key for a key or side button.
+pub fn vk_of(button: Button) -> Option<u32> {
+    match button {
+        Button::Key(code) => vk_of_code(code),
+        Button::Mouse4 => Some(u32::from(VK_XBUTTON1)),
+        Button::Mouse5 => Some(u32::from(VK_XBUTTON2)),
+    }
+}
+
 /// The virtual key for a key code. Mirrors the table global-hotkey uses for
 /// RegisterHotKey, so every source agrees on what the hotkey is.
-pub fn vk_of(code: Code) -> Option<u32> {
+fn vk_of_code(code: Code) -> Option<u32> {
     let vk = match code {
         Code::KeyA => VK_A,
         Code::KeyB => VK_B,

@@ -1,16 +1,28 @@
 /**
  * Hotkey strings as stored in config.json and parsed by the Rust side
- * (global-hotkey): modifiers then one W3C key code, joined by "+",
- * e.g. "Backquote", "Ctrl+Alt+KeyQ", "F13".
+ * (src-tauri/src/key_watch/button.rs): modifiers then one W3C key code,
+ * joined by "+", e.g. "Backquote", "Ctrl+Alt+KeyQ", "F13". The mouse side
+ * buttons are "Mouse4" and "Mouse5".
  */
+
+/** The modifier state any keyboard or mouse event carries. */
+export type ModifierState = Pick<KeyboardEvent, "ctrlKey" | "shiftKey" | "altKey" | "metaKey">;
 
 /** Modifiers in the order they're written. */
 const MODIFIERS = [
-  { token: "Ctrl", label: "Ctrl", held: (e: KeyboardEvent) => e.ctrlKey },
-  { token: "Shift", label: "Shift", held: (e: KeyboardEvent) => e.shiftKey },
-  { token: "Alt", label: "Alt", held: (e: KeyboardEvent) => e.altKey },
-  { token: "Super", label: "Win", held: (e: KeyboardEvent) => e.metaKey },
+  { token: "Ctrl", label: "Ctrl", held: (e: ModifierState) => e.ctrlKey },
+  { token: "Shift", label: "Shift", held: (e: ModifierState) => e.shiftKey },
+  { token: "Alt", label: "Alt", held: (e: ModifierState) => e.altKey },
+  { token: "Super", label: "Win", held: (e: ModifierState) => e.metaKey },
 ];
+
+/** `MouseEvent.button` for the side buttons: 3 is back (Mouse 4), 4 is forward (Mouse 5). */
+const MOUSE_CODES: Record<number, string> = { 3: "Mouse4", 4: "Mouse5" };
+
+/** The code for a mouse side button, or undefined for any other button. */
+export function mouseCode(button: number): string | undefined {
+  return MOUSE_CODES[button];
+}
 
 const MODIFIER_CODES = /^(Control|Alt|Meta|OS|Shift)(Left|Right)$/;
 
@@ -27,14 +39,14 @@ export function mainKeyCode(hotkey: string): string {
 }
 
 /** Labels of the modifiers held during `e`. */
-export function heldModifiers(e: KeyboardEvent): string[] {
+export function heldModifiers(e: ModifierState): string[] {
   return MODIFIERS.filter((m) => m.held(e)).map((m) => m.label);
 }
 
-/** The hotkey string for a key press. Call only for non-modifier keys. */
-export function hotkeyFromEvent(e: KeyboardEvent): string {
+/** The hotkey string for a key or side button pressed with `e`'s modifiers. Not for modifier keys. */
+export function hotkeyFrom(code: string, e: ModifierState): string {
   const mods = MODIFIERS.filter((m) => m.held(e)).map((m) => m.token);
-  return [...mods, e.code].join("+");
+  return [...mods, code].join("+");
 }
 
 /** Splits a hotkey string into keycap labels, e.g. "Ctrl+KeyQ" -> ["Ctrl", "Q"]. */
@@ -78,6 +90,8 @@ const KEY_LABELS: Record<string, string> = {
   Delete: "Del",
   Insert: "Ins",
   CapsLock: "Caps",
+  Mouse4: "Mouse 4",
+  Mouse5: "Mouse 5",
 };
 
 /** Label for one key code, e.g. "KeyQ" -> "Q". */

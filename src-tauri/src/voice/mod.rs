@@ -35,7 +35,8 @@ const TAIL: Duration = Duration::from_millis(200);
 #[serde(default, rename_all = "camelCase")]
 pub struct VoiceConfig {
     pub enabled: bool,
-    /// W3C key code of the talk key, e.g. "KeyV" or "CapsLock". Empty when not set.
+    /// W3C key code of the talk key, e.g. "KeyV" or "CapsLock", or "Mouse4"/"Mouse5".
+    /// Empty when not set.
     /// Modifiers don't matter, and the key still reaches the game.
     pub key: String,
     /// Model id from `models::MODELS`, e.g. "tiny.en".

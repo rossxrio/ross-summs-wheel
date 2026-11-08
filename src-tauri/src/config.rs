@@ -11,7 +11,8 @@ pub const DEFAULT_HOTKEY: &str = "Backquote";
 #[derive(Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Config {
-    /// Global shortcut, e.g. "Backquote", "Alt+Q", "F13". Uses W3C key code names.
+    /// Global shortcut, e.g. "Backquote", "Alt+Q", "F13", "Mouse4". Uses W3C
+    /// key code names, plus "Mouse4"/"Mouse5" for the mouse side buttons.
     pub hotkey: String,
     /// Key sequences typed while holding the hotkey (see quick_binds.rs).
     pub quick_binds: Vec<QuickBind>,

@@ -10,7 +10,7 @@ import {
 } from "../platform/settings";
 import { escapeHtml } from "../utils/html";
 import { parseVoice, SPELL_LABEL } from "../voice/parse";
-import { heldModifiers, hotkeyFromEvent, hotkeyLabels, isModifier, keyLabel } from "./keys";
+import { heldModifiers, hotkeyFrom, hotkeyLabels, isModifier, keyLabel, mouseCode, type ModifierState } from "./keys";
 import { findProblem } from "./validate";
 
 /** How long "Saved" shows before the window closes. */
@@ -126,7 +126,7 @@ function renderVoice(): void {
   const rec = recording?.kind === "voice";
   voiceKeyButton.classList.toggle("recording", rec);
   voiceKeyButton.innerHTML = rec
-    ? `<span class="placeholder">Press a key…</span>`
+    ? `<span class="placeholder">Press a key or mouse button…</span>`
     : voice.key
       ? keycaps([keyLabel(voice.key)], "")
       : `<span class="placeholder">Set key</span>`;
@@ -234,9 +234,9 @@ function renderFooter(): void {
   const problem = findProblem(draft);
   let text = "Tap the hotkey 3 times to open this";
   let tone = "";
-  if (recording?.kind === "hotkey") text = "Press the new hotkey · Esc to cancel";
-  else if (recording?.kind === "voice") text = "Press the talk key · Esc to cancel";
-  else if (recording?.kind === "bind") text = "Type up to 3 keys · Enter to finish";
+  if (recording?.kind === "hotkey") text = "Press a key or Mouse 4/5 · Esc to cancel";
+  else if (recording?.kind === "voice") text = "Press a key or Mouse 4/5 · Esc to cancel";
+  else if (recording?.kind === "bind") text = "Up to 3 keys or Mouse 4/5 · Enter to finish";
   else if (notice) ({ text, tone } = notice);
   else if (problem) [text, tone] = [problem.message, "error"];
 
@@ -278,26 +278,30 @@ function cancelRecording(): void {
 }
 
 function recordKey(e: KeyboardEvent): void {
+  if (!isModifier(e.code)) return record(e.code, e);
+  // A modifier alone only updates the hotkey preview.
+  if (recording?.kind === "hotkey") {
+    recording.mods = heldModifiers(e);
+    renderHotkey();
+  }
+}
+
+/** Takes a key or mouse side button (`code`) pressed with `mods` held. */
+function record(code: string, mods: ModifierState): void {
   const rec = recording!;
   if (rec.kind === "voice") {
-    // A single key; it works whatever modifiers are held.
-    if (isModifier(e.code)) return;
-    draft.voice.key = e.code;
+    // A single key or button; it works whatever modifiers are held.
+    draft.voice.key = code;
     return finishRecording();
   }
   if (rec.kind === "hotkey") {
-    if (isModifier(e.code)) {
-      rec.mods = heldModifiers(e);
-      return renderHotkey();
-    }
-    draft.hotkey = hotkeyFromEvent(e);
+    draft.hotkey = hotkeyFrom(code, mods);
     return finishRecording();
   }
 
   // Modifiers are implied: bind keys are pressed with the hotkey's modifiers held.
-  if (isModifier(e.code)) return;
   const keys = draft.quickBinds[rec.index].keys;
-  keys.push(e.code);
+  keys.push(code);
   window.clearTimeout(rec.idle);
   if (keys.length >= MAX_BIND_KEYS) return finishRecording();
   rec.idle = window.setTimeout(finishRecording, RECORD_IDLE_MS);
@@ -396,6 +400,13 @@ window.addEventListener("keyup", (e) => {
 document.addEventListener(
   "pointerdown",
   (e) => {
+    // Mouse 4/5 while recording are the input itself, wherever the pointer is.
+    const side = mouseCode(e.button);
+    if (recording && side) {
+      e.preventDefault();
+      e.stopPropagation();
+      return record(side, e);
+    }
     const target = e.target as Element;
     const active =
       recording?.kind === "hotkey"
@@ -407,6 +418,13 @@ document.addEventListener(
   },
   true,
 );
+
+// Mouse 4/5 would otherwise mean back/forward in the webview.
+for (const type of ["mousedown", "mouseup", "auxclick"] as const) {
+  window.addEventListener(type, (e) => {
+    if (mouseCode(e.button)) e.preventDefault();
+  });
+}
 
 hotkeyButton.addEventListener("click", () => {
   if (recording?.kind === "hotkey") cancelRecording();
@@ -500,7 +518,7 @@ function stopTest(): void {
 }
 
 voiceTestButton.addEventListener("pointerdown", (e) => {
-  if (voiceTestButton.disabled) return;
+  if (voiceTestButton.disabled || e.button !== 0) return;
   voiceTestButton.setPointerCapture(e.pointerId);
   testing = true;
   voiceNote = { text: "Listening… say a command, then let go", tone: "" };
