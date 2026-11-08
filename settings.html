@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Summs Wheel Settings</title>
+  </head>
+  <body>
+    <main class="card">
+      <header data-tauri-drag-region>
+        <span class="eyebrow" data-tauri-drag-region>Wheel hotkey</span>
+        <button class="close" id="close" aria-label="Close">&times;</button>
+      </header>
+
+      <div class="keys" id="keys" aria-live="polite"></div>
+      <p class="hint" id="hint">Press a new key</p>
+
+      <footer>
+        <span class="tip">Right Shift + hotkey opens this</span>
+        <button class="save" id="save" disabled>Save</button>
+      </footer>
+    </main>
+    <script type="module" src="/src/settings/main.ts"></script>
+  </body>
+</html>

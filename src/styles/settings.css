@@ -1,0 +1,188 @@
+/* Settings window (settings.html): a frameless, transparent window whose card is the whole UI. */
+
+:root {
+  --card: rgba(12, 14, 20, 0.96);
+  --line: rgba(200, 170, 110, 0.22);
+  --accent: #c8aa6e; /* League gold */
+  --text: #f0e6d2;
+  --muted: #8c877b;
+  --error: #f87171;
+  --ok: #4ade80;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  color: var(--text);
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  user-select: none;
+}
+
+/* Browser preview only. */
+body.preview {
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, #1b3a2a, #2a2f3d 60%, #3a2a2a);
+}
+
+body.preview .card {
+  width: 340px;
+  height: 236px;
+}
+
+.card {
+  box-sizing: border-box;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 14px 18px 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: radial-gradient(120% 80% at 50% 0%, rgba(200, 170, 110, 0.08), transparent 70%), var(--card);
+  animation: rise 160ms ease-out;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+  border: none;
+  outline: none;
+}
+
+.close {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+  transition:
+    color 120ms,
+    background 120ms;
+}
+
+.close:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.keys {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+kbd {
+  min-width: 44px;
+  height: 48px;
+  padding: 0 14px;
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-bottom: 3px solid var(--accent);
+  border-radius: 8px;
+  background: linear-gradient(#1c1f27, #13151b);
+  font-family: inherit;
+  font-size: 20px;
+  font-weight: 600;
+  animation: pop 140ms ease-out;
+}
+
+kbd.pending {
+  border-bottom-color: var(--line);
+  color: var(--muted);
+}
+
+.keys.saved kbd {
+  border-bottom-color: var(--ok);
+}
+
+.plus {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.hint {
+  margin: 0 0 14px;
+  min-height: 1.3em;
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.hint.error {
+  color: var(--error);
+}
+
+.hint.ok {
+  color: var(--ok);
+}
+
+footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.tip {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.save {
+  padding: 6px 16px;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #111;
+  font-size: 12px;
+  font-weight: 600;
+  transition:
+    opacity 120ms,
+    filter 120ms;
+}
+
+.save:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.save:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+}
