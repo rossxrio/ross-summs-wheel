@@ -2,8 +2,14 @@ import "../styles/settings.css";
 
 import { ROLE_LABEL, ROLES, SPELL_NAMES } from "../league/spells";
 import type { Role } from "../league/types";
-import { settingsBackend as backend, type Settings } from "../platform/settings";
+import {
+  settingsBackend as backend,
+  type DownloadProgress,
+  type Settings,
+  type VoiceStatus,
+} from "../platform/settings";
 import { escapeHtml } from "../utils/html";
+import { parseVoice, SPELL_LABEL } from "../voice/parse";
 import { heldModifiers, hotkeyFromEvent, hotkeyLabels, isModifier, keyLabel } from "./keys";
 import { findProblem } from "./validate";
 
@@ -21,12 +27,22 @@ const statusElement = document.getElementById("status")!;
 const saveButton = document.getElementById("save") as HTMLButtonElement;
 const overlayButton = document.getElementById("overlay-toggle") as HTMLButtonElement;
 const quitButton = document.getElementById("quit") as HTMLButtonElement;
+const voiceOn = document.getElementById("voice-on") as HTMLInputElement;
+const voiceBody = document.getElementById("voice-body")!;
+const voiceKeyButton = document.getElementById("voice-key") as HTMLButtonElement;
+const voiceModel = document.getElementById("voice-model") as HTMLSelectElement;
+const voiceDownload = document.getElementById("voice-download") as HTMLButtonElement;
+const voiceTestButton = document.getElementById("voice-test") as HTMLButtonElement;
+const voiceSub = document.getElementById("voice-sub")!;
 
 // ---- State -----------------------------------------------------------------
 
-type Recording = { kind: "hotkey"; mods: string[] } | { kind: "bind"; index: number; before: string[]; idle?: number };
+type Recording =
+  | { kind: "hotkey"; mods: string[] }
+  | { kind: "bind"; index: number; before: string[]; idle?: number }
+  | { kind: "voice" };
 
-let saved: Settings = { hotkey: "", quickBinds: [] };
+let saved: Settings = { hotkey: "", quickBinds: [], voice: { enabled: false, key: "", model: "tiny.en" } };
 let draft: Settings = structuredClone(saved);
 let recording: Recording | null = null;
 let saving = false;
@@ -34,6 +50,12 @@ let saving = false;
 let overlayShown = true;
 /** Shown in the status line until the next change. */
 let notice: { text: string; tone: "error" | "ok" } | null = null;
+
+let voiceStatus: VoiceStatus | null = null;
+let download: DownloadProgress | null = null;
+/** Last test result or download error, under the voice controls. */
+let voiceNote: { text: string; tone: "error" | "ok" | "" } | null = null;
+let testing = false;
 
 const isDirty = () => JSON.stringify(draft) !== JSON.stringify(saved);
 
@@ -45,8 +67,71 @@ const keycaps = (labels: string[], separator: string, extra = "") =>
 function render(): void {
   renderHotkey();
   renderBinds();
+  renderVoice();
   renderFooter();
   renderAppActions();
+}
+
+const voiceChanged = () => JSON.stringify(draft.voice) !== JSON.stringify(saved.voice);
+
+function renderVoice(): void {
+  const voice = draft.voice;
+  voiceOn.checked = voice.enabled;
+  voiceBody.classList.toggle("off", !voice.enabled);
+
+  const rec = recording?.kind === "voice";
+  voiceKeyButton.classList.toggle("recording", rec);
+  voiceKeyButton.innerHTML = rec
+    ? `<span class="placeholder">Press a key…</span>`
+    : voice.key
+      ? keycaps([keyLabel(voice.key)], "")
+      : `<span class="placeholder">Set key</span>`;
+
+  const models = voiceStatus?.models ?? [];
+  voiceModel.innerHTML = models
+    .map(
+      (m) =>
+        `<option value="${m.id}"${m.id === voice.model ? " selected" : ""}>${escapeHtml(m.label)}${
+          m.downloaded ? "" : ` · ${m.sizeMb} MB`
+        }</option>`,
+    )
+    .join("");
+  const model = models.find((m) => m.id === voice.model);
+  const downloading = download !== null;
+  voiceDownload.hidden = !model || model.downloaded;
+  voiceDownload.disabled = downloading;
+  voiceDownload.textContent =
+    download?.model === voice.model ? `${Math.floor((download.received / download.total) * 100)}%` : "Download";
+
+  // The test uses what's saved and loaded, not the draft.
+  const ready = voiceStatus?.state === "ready" && !voiceChanged();
+  voiceTestButton.disabled = !ready && !testing;
+  voiceTestButton.classList.toggle("active", testing);
+
+  let note = voiceNote;
+  if (!note) {
+    let text = "";
+    if (!voice.enabled) text = "Hold a key and say “ADC no flash”";
+    else if (downloading) text = "Downloading the model…";
+    else if (model && !model.downloaded) text = `Download the model (${model.sizeMb} MB) to start`;
+    else if (voiceChanged()) text = "Save to try it";
+    else if (voiceStatus?.message) text = voiceStatus.message;
+    else if (ready) text = `In game: hold ${keyLabel(voice.key)}, say “ADC no flash”`;
+    note = { text, tone: voiceStatus?.state === "error" ? "error" : "" };
+  }
+  voiceSub.textContent = note.text;
+  voiceSub.className = `sub ${note.tone}`;
+}
+
+/** What a test clip turned into, as the overlay would read it (no game roster here). */
+function describeTest(text: string, words: Parameters<typeof parseVoice>[0], decodeMs: number): string {
+  if (!text) return "Didn't hear anything. Is the right mic the Windows default?";
+  const { commands, problem } = parseVoice(words, []);
+  const done = commands.map((c) =>
+    c.kind === "undo" ? "Undo" : `${ROLE_LABEL[c.role]} ${SPELL_LABEL[c.spell] ?? c.spell}`,
+  );
+  const took = `${(decodeMs / 1000).toFixed(1)} s`;
+  return done.length ? `“${text}” → ${done.join(", ")} (${took})` : `“${text}” → ${problem} (${took})`;
 }
 
 function renderAppActions(): void {
@@ -105,6 +190,7 @@ function renderFooter(): void {
   let text = "Tap the hotkey 3 times to open this";
   let tone = "";
   if (recording?.kind === "hotkey") text = "Press the new hotkey · Esc to cancel";
+  else if (recording?.kind === "voice") text = "Press the talk key · Esc to cancel";
   else if (recording?.kind === "bind") text = "Type up to 3 keys · Enter to finish";
   else if (notice) ({ text, tone } = notice);
   else if (problem) [text, tone] = [problem.message, "error"];
@@ -148,6 +234,12 @@ function cancelRecording(): void {
 
 function recordKey(e: KeyboardEvent): void {
   const rec = recording!;
+  if (rec.kind === "voice") {
+    // A single key; it works whatever modifiers are held.
+    if (isModifier(e.code)) return;
+    draft.voice.key = e.code;
+    return finishRecording();
+  }
   if (rec.kind === "hotkey") {
     if (isModifier(e.code)) {
       rec.mods = heldModifiers(e);
@@ -175,9 +267,16 @@ async function save(): Promise<void> {
   renderFooter();
   try {
     await backend.saveSettings(draft);
+    const voiceTurnedOn = draft.voice.enabled && voiceChanged();
     saved = structuredClone(draft);
-    notice = { text: "Saved", tone: "ok" };
-    window.setTimeout(() => void backend.close(), CLOSE_DELAY_MS);
+    voiceNote = null;
+    if (voiceTurnedOn) {
+      // Stay open so the new voice settings can be tried right away.
+      notice = { text: "Saved · try Hold to test", tone: "ok" };
+    } else {
+      notice = { text: "Saved", tone: "ok" };
+      window.setTimeout(() => void backend.close(), CLOSE_DELAY_MS);
+    }
   } catch (err) {
     notice = { text: String(err), tone: "error" };
   }
@@ -251,7 +350,12 @@ document.addEventListener(
   "pointerdown",
   (e) => {
     const target = e.target as Element;
-    const active = recording?.kind === "hotkey" ? hotkeyButton : bindList.querySelector(".keys.recording");
+    const active =
+      recording?.kind === "hotkey"
+        ? hotkeyButton
+        : recording?.kind === "voice"
+          ? voiceKeyButton
+          : bindList.querySelector(".keys.recording");
     if (recording && !active?.contains(target)) finishRecording();
   },
   true,
@@ -292,10 +396,80 @@ document.getElementById("add")!.addEventListener("click", addBind);
 saveButton.addEventListener("click", () => void save());
 document.getElementById("close")!.addEventListener("click", () => void backend.close());
 overlayButton.addEventListener("click", () => void toggleOverlay());
+
+voiceOn.addEventListener("change", () => {
+  draft.voice.enabled = voiceOn.checked;
+  notice = null;
+  voiceNote = null;
+  if (voiceOn.checked && !draft.voice.key) startRecording({ kind: "voice" });
+  else render();
+});
+
+voiceKeyButton.addEventListener("click", () => {
+  if (recording?.kind === "voice") cancelRecording();
+  else startRecording({ kind: "voice" });
+});
+
+voiceModel.addEventListener("change", () => {
+  draft.voice.model = voiceModel.value;
+  voiceNote = null;
+  render();
+});
+
+voiceDownload.addEventListener("click", async () => {
+  const model = draft.voice.model;
+  download = { model, received: 0, total: 1 };
+  voiceNote = null;
+  render();
+  try {
+    await backend.downloadVoiceModel(model);
+  } catch (err) {
+    voiceNote = { text: String(err), tone: "error" };
+  }
+  download = null;
+  voiceStatus = await backend.getVoiceStatus();
+  render();
+});
+
+function stopTest(): void {
+  if (!testing) return;
+  testing = false;
+  voiceNote = { text: "…", tone: "" };
+  void backend.voiceTest(false);
+  render();
+}
+
+voiceTestButton.addEventListener("pointerdown", (e) => {
+  if (voiceTestButton.disabled) return;
+  voiceTestButton.setPointerCapture(e.pointerId);
+  testing = true;
+  voiceNote = { text: "Listening… say a command, then let go", tone: "" };
+  void backend.voiceTest(true);
+  render();
+});
+voiceTestButton.addEventListener("pointerup", stopTest);
+voiceTestButton.addEventListener("pointercancel", stopTest);
 quitButton.addEventListener("click", () => void quit());
 
 async function start(): Promise<void> {
-  [saved, overlayShown] = await Promise.all([backend.getSettings(), backend.isOverlayShown()]);
+  await backend.onVoiceStatus((status) => {
+    voiceStatus = status;
+    render();
+  });
+  await backend.onVoiceDownload((progress) => {
+    download = progress;
+    renderVoice();
+  });
+  await backend.onVoiceHeard((heard) => {
+    if (!heard.test) return;
+    voiceNote = { text: describeTest(heard.text, heard.words, heard.decodeMs), tone: heard.text ? "ok" : "error" };
+    renderVoice();
+  });
+  [saved, overlayShown, voiceStatus] = await Promise.all([
+    backend.getSettings(),
+    backend.isOverlayShown(),
+    backend.getVoiceStatus(),
+  ]);
   draft = structuredClone(saved);
   render();
 }

@@ -79,7 +79,7 @@ impl Matcher {
     }
 }
 
-fn parse_key(code: &str) -> Result<Code, String> {
+pub fn parse_key(code: &str) -> Result<Code, String> {
     match code.parse::<Shortcut>() {
         Ok(shortcut) if shortcut.mods.is_empty() => Ok(shortcut.key),
         _ => Err(format!("{code} can't be used in a quick bind")),

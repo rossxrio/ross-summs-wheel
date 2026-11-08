@@ -33,7 +33,7 @@ body.preview {
 
 body.preview .card {
   width: 380px;
-  height: 506px;
+  height: 640px;
 }
 
 .card {
@@ -288,6 +288,167 @@ select:focus {
 }
 
 .remove:hover {
+  color: var(--error);
+}
+
+/* ---- Voice commands ---- */
+
+.voice {
+  margin-top: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--hairline);
+}
+
+.switch {
+  position: relative;
+  width: 30px;
+  height: 17px;
+  cursor: pointer;
+}
+
+.switch input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.switch .track {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: var(--field);
+  border: 1px solid var(--line);
+  transition: background 120ms;
+}
+
+.switch .track::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--muted);
+  transition:
+    transform 140ms ease-out,
+    background 120ms;
+}
+
+.switch input:checked + .track {
+  background: rgba(200, 170, 110, 0.25);
+}
+
+.switch input:checked + .track::after {
+  transform: translateX(13px);
+  background: var(--accent);
+}
+
+.voice-grid {
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  align-items: center;
+  gap: 6px 8px;
+  margin-top: 10px;
+  transition: opacity 120ms;
+}
+
+.voice-grid.off {
+  opacity: 0.45;
+}
+
+.voice-grid .label {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.talk-key {
+  justify-content: flex-start;
+  padding: 0 4px;
+  border-color: var(--hairline);
+}
+
+.model-row {
+  display: flex;
+  gap: 6px;
+}
+
+.model-row select {
+  flex: 1;
+  min-width: 0;
+}
+
+.small {
+  flex-shrink: 0;
+  min-width: 70px;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  transition: background 120ms;
+}
+
+.small:hover:not(:disabled) {
+  background: rgba(200, 170, 110, 0.1);
+}
+
+.small:disabled {
+  cursor: default;
+  color: var(--muted);
+}
+
+.voice-test-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.test {
+  flex-shrink: 0;
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  transition:
+    background 120ms,
+    border-color 120ms,
+    opacity 120ms;
+  touch-action: none;
+}
+
+.test:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.test.active {
+  border-color: var(--error);
+  background: rgba(248, 113, 113, 0.12);
+}
+
+.test:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.voice-test-row .sub {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sub.ok {
+  color: var(--text);
+}
+
+.sub.error {
   color: var(--error);
 }
 

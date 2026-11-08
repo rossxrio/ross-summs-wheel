@@ -16,6 +16,7 @@ mod quick_binds;
 mod riot;
 mod settings;
 mod tray;
+mod voice;
 
 fn main() {
     tauri::Builder::default()
@@ -23,6 +24,7 @@ fn main() {
         .manage(hotkey::Hotkeys::default())
         .manage(riot::live_client::LiveState::default())
         .manage(overlay::SavedCursor::default())
+        .manage(voice::Voice::default())
         .invoke_handler(tauri::generate_handler![
             riot::ddragon::get_spell_data,
             riot::live_client::get_game_state,
@@ -31,7 +33,10 @@ fn main() {
             overlay::set_overlay_shown,
             settings::get_settings,
             settings::save_settings,
-            settings::quit_app
+            settings::quit_app,
+            voice::get_voice_status,
+            voice::voice_test,
+            voice::models::download_voice_model
         ])
         .setup(|app| {
             let cfg = config::load(app.handle());

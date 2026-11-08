@@ -1,0 +1,15 @@
+# Build flags for whisper.cpp (voice commands, via whisper-rs-sys).
+[env]
+# GGML_NATIVE under MSVC turns on AVX-512 but not FMA/F16C, which makes Whisper
+# about 10x slower. Target AVX2 explicitly instead: fast, and the exe also runs
+# on CPUs other than the build machine's (anything since ~2013).
+GGML_NATIVE = "OFF"
+GGML_AVX = "ON"
+GGML_AVX2 = "ON"
+GGML_FMA = "ON"
+GGML_F16C = "ON"
+# The cmake crate replaces CMake's Release flags with its own, which under MSVC
+# leaves out /O2: whisper.cpp then runs ~20x slower. Put optimization back
+# (-MD matches the CRT Rust links against).
+CMAKE_C_FLAGS_RELEASE = "-nologo -MD -O2 -Ob2 -DNDEBUG"
+CMAKE_CXX_FLAGS_RELEASE = "-nologo -MD -O2 -Ob2 -DNDEBUG"

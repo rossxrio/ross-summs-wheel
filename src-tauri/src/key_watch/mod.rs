@@ -12,6 +12,10 @@
 //! 3. polling `GetAsyncKeyState`, the last resort, which only speaks when
 //!    the event sources have been silent for a moment.
 //!
+//! The voice talk key is seen only through these backup sources, never as a
+//! global shortcut: it's watched, not taken, so it still reaches the game and
+//! can double as Discord's push-to-talk key.
+//!
 //! Every source reports to one [`Tracker`], which turns the overlapping
 //! reports into a single press and a single release per key. The rest of the
 //! app sees only those edges, via the sink given to [`init`].
@@ -41,6 +45,8 @@ pub enum Key {
     Wheel,
     /// A quick-bind key, while the wheel hotkey is held.
     Quick(Code),
+    /// The push-to-talk key for voice commands.
+    Voice,
 }
 
 /// Where a report came from. Shown in the input log.
@@ -71,6 +77,8 @@ pub struct Target {
     pub wheel: Option<Shortcut>,
     /// Quick-bind keys, non-empty only while the wheel hotkey is held.
     pub armed: Vec<Code>,
+    /// The voice talk key, `None` while voice is off or paused. Any modifiers.
+    pub voice: Option<Code>,
 }
 
 #[derive(Default)]
@@ -115,6 +123,7 @@ impl Tracker {
         self.keys.retain(|key, _| match key {
             Key::Wheel => target.wheel.is_some(),
             Key::Quick(code) => target.armed.contains(code),
+            Key::Voice => target.voice.is_some(),
         });
     }
 }
@@ -203,6 +212,14 @@ pub fn set_wheel(wheel: Option<Shortcut>) {
 pub fn set_armed(armed: Vec<Code>) {
     let mut shared = SHARED.lock().unwrap();
     shared.target.armed = armed;
+    let Shared { tracker, target } = &mut *shared;
+    tracker.retain(target);
+}
+
+/// Sets the voice talk key to watch (`None` while voice is off or paused).
+pub fn set_voice(voice: Option<Code>) {
+    let mut shared = SHARED.lock().unwrap();
+    shared.target.voice = voice;
     let Shared { tracker, target } = &mut *shared;
     tracker.retain(target);
 }

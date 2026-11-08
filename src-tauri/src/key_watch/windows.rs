@@ -53,6 +53,8 @@ thread_local! {
     static HOOK: Cell<HHOOK> = const { Cell::new(null_mut()) };
     /// The previous poll's reading of the wheel key.
     static LAST_POLL: Cell<bool> = const { Cell::new(false) };
+    /// The same for the voice talk key.
+    static LAST_VOICE_POLL: Cell<bool> = const { Cell::new(false) };
 }
 
 pub fn start() {
@@ -213,6 +215,13 @@ unsafe fn raw_input(handle: HRAWINPUT) {
 
 unsafe fn poll() {
     let (target, was_down) = snapshot();
+    if let Some(vk) = target.voice.and_then(vk_of) {
+        // Same two-readings rule as the wheel key below; modifiers don't matter.
+        let down = is_down(vk);
+        if LAST_VOICE_POLL.replace(down) == down {
+            report(Key::Voice, down, Source::Poll);
+        }
+    }
     let Some(wheel) = target.wheel else { return };
     let Some(vk) = vk_of(wheel.key) else { return };
 
@@ -268,6 +277,11 @@ fn on_key(vk: u32, pressed: bool, source: Source) -> Action {
             }
             return Action::Pass;
         }
+    }
+    if target.voice.and_then(vk_of) == Some(vk) {
+        // Watched, never taken: the game and Discord still get it.
+        report(Key::Voice, pressed, source);
+        return Action::Pass;
     }
     match target.armed.iter().find(|code| vk_of(**code) == Some(vk)) {
         Some(code) => {

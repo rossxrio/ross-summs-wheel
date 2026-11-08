@@ -3,7 +3,7 @@
 
 use crate::{
     config::{self, Config},
-    hotkey, tray,
+    hotkey, tray, voice,
 };
 use tauri::{async_runtime, AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
 
@@ -24,11 +24,16 @@ pub fn open(app: &AppHandle) {
         hotkey::pause(&app);
         match build(&app) {
             Ok(window) => {
+                // The mic opens for the "hold to test" button.
+                voice::set_settings_open(&app, true);
                 let app = app.clone();
                 window.on_window_event(move |event| {
                     if matches!(event, WindowEvent::Destroyed) {
                         let app = app.clone();
-                        async_runtime::spawn(async move { hotkey::resume(&app) });
+                        async_runtime::spawn(async move {
+                            voice::set_settings_open(&app, false);
+                            hotkey::resume(&app);
+                        });
                     }
                 });
             }
@@ -46,7 +51,7 @@ pub fn open(app: &AppHandle) {
 fn build(app: &AppHandle) -> tauri::Result<WebviewWindow> {
     WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("settings.html".into()))
         .title("Summs Wheel Settings")
-        .inner_size(380.0, 506.0)
+        .inner_size(380.0, 640.0)
         .center()
         .resizable(false)
         .maximizable(false)

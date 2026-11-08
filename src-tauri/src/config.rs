@@ -1,4 +1,4 @@
-use crate::quick_binds::QuickBind;
+use crate::{quick_binds::QuickBind, voice::VoiceConfig};
 use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf};
 use tauri::{AppHandle, Manager};
@@ -15,6 +15,8 @@ pub struct Config {
     pub hotkey: String,
     /// Key sequences typed while holding the hotkey (see quick_binds.rs).
     pub quick_binds: Vec<QuickBind>,
+    /// Push-to-talk voice commands (see voice/).
+    pub voice: VoiceConfig,
 }
 
 impl Default for Config {
@@ -22,6 +24,7 @@ impl Default for Config {
         Self {
             hotkey: DEFAULT_HOTKEY.into(),
             quick_binds: vec![],
+            voice: VoiceConfig::default(),
         }
     }
 }

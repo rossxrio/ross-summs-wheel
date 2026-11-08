@@ -2,14 +2,16 @@
 //! - the wheel hotkey (seen through the plugin and the backups in key_watch.rs),
 //! - three quick taps of the hotkey, which open the settings window,
 //! - quick-bind keys, registered only while the hotkey is held so they reach
-//!   the game normally the rest of the time.
+//!   the game normally the rest of the time,
+//! - the voice talk key, only watched (key_watch.rs), never registered.
 
 use crate::{
     config::{Config, DEFAULT_HOTKEY},
     key_watch::{self, Edge, Key, Source},
     overlay,
-    quick_binds::{Matcher, QuickBind},
+    quick_binds::{self, Matcher, QuickBind},
     settings,
+    voice::{self, VoiceConfig},
 };
 use std::{
     sync::Mutex,
@@ -33,6 +35,7 @@ struct Bound {
     hotkey: String,
     quick_binds: Vec<QuickBind>,
     matcher: Matcher,
+    voice: VoiceConfig,
     /// `None` while paused (settings window open).
     wheel: Option<Shortcut>,
     taps: Taps,
@@ -71,8 +74,10 @@ pub fn watch(app: &AppHandle) {
     let handle = app.clone();
     key_watch::init(log_path, move |edge| {
         // Edges come from several threads; handle them in order on the main one.
+        // The time is taken here: voice timers count from the real key press.
+        let at = Instant::now();
         let app = handle.clone();
-        let _ = handle.run_on_main_thread(move || on_edge(&app, edge));
+        let _ = handle.run_on_main_thread(move || on_edge(&app, edge, at));
     });
 }
 
@@ -83,7 +88,7 @@ pub fn watch(app: &AppHandle) {
 /// Tapping the hotkey three times opens settings instead. The first two taps
 /// open and cancel the wheel, which is harmless. While the overlay is hidden,
 /// that's all the hotkey does.
-fn on_edge(app: &AppHandle, edge: Edge) {
+fn on_edge(app: &AppHandle, edge: Edge, at: Instant) {
     let now = Instant::now();
     match edge.key {
         Key::Wheel => {
@@ -112,6 +117,7 @@ fn on_edge(app: &AppHandle, edge: Edge) {
             }
         }
         Key::Quick(_) => {}
+        Key::Voice => voice::talk(app, edge.pressed, at, false),
     }
 }
 
@@ -129,10 +135,12 @@ pub fn init(app: &AppHandle, cfg: &Config) -> String {
         b.hotkey = cfg.hotkey.clone();
         b.quick_binds = cfg.quick_binds.clone();
         b.matcher = matcher;
+        b.voice = cfg.voice.clone();
     });
+    voice::apply(app, &cfg.voice);
 
     let wanted = &cfg.hotkey;
-    match register(app, wanted) {
+    let label = match register(app, wanted) {
         Ok(()) => wanted.to_string(),
         Err(err) => {
             eprintln!("can't register hotkey {wanted:?}: {err}");
@@ -143,19 +151,27 @@ pub fn init(app: &AppHandle, cfg: &Config) -> String {
                 format!("{wanted} (unavailable: in use or invalid)")
             }
         }
-    }
+    };
+    watch_voice(app);
+    label
 }
 
 /// Puts new settings into use. Fails (keeping nothing registered) if a key
 /// can't be parsed or another app has the hotkey.
 pub fn apply(app: &AppHandle, cfg: &Config) -> Result<(), String> {
     let matcher = Matcher::new(&cfg.quick_binds)?;
+    if !cfg.voice.key.is_empty() {
+        quick_binds::parse_key(&cfg.voice.key).map_err(|_| format!("{} can't be the talk key", cfg.voice.key))?;
+    }
     register(app, &cfg.hotkey)?;
     with_bound(app, |b| {
         b.hotkey = cfg.hotkey.clone();
         b.quick_binds = cfg.quick_binds.clone();
         b.matcher = matcher;
+        b.voice = cfg.voice.clone();
     });
+    voice::apply(app, &cfg.voice);
+    watch_voice(app);
     Ok(())
 }
 
@@ -164,6 +180,7 @@ pub fn current(app: &AppHandle) -> Config {
     with_bound(app, |b| Config {
         hotkey: b.hotkey.clone(),
         quick_binds: b.quick_binds.clone(),
+        voice: b.voice.clone(),
     })
 }
 
@@ -177,6 +194,7 @@ pub fn pause(app: &AppHandle) {
     });
     key_watch::set_wheel(None);
     key_watch::set_armed(vec![]);
+    key_watch::set_voice(None);
 }
 
 /// Registers the hotkey in use again after `pause`.
@@ -185,6 +203,16 @@ pub fn resume(app: &AppHandle) {
     if let Err(err) = register(app, &hotkey) {
         eprintln!("can't register hotkey {hotkey:?}: {err}");
     }
+    watch_voice(app);
+}
+
+/// Starts watching the talk key, if voice is on. `register` pauses it.
+fn watch_voice(app: &AppHandle) {
+    let key = with_bound(app, |b| {
+        let v = &b.voice;
+        (v.enabled && !v.key.is_empty()).then(|| v.key.clone())
+    });
+    key_watch::set_voice(key.and_then(|k| quick_binds::parse_key(&k).ok()));
 }
 
 /// Replaces whatever is registered with `hotkey`.

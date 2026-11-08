@@ -56,9 +56,12 @@ export class Store {
     if (!this.cosmicInsight.delete(role)) this.cosmicInsight.add(role);
   }
 
-  /** Starts from the base cooldown: timers apply the enemy's haste as they run. */
-  startTimer(role: Role, spellId: string): void {
-    this.timers.start(role, spellId, this.baseCooldownOf(role, spellId));
+  /**
+   * Starts from the base cooldown: timers apply the enemy's haste as they run.
+   * `agoSec` backdates it, for a spell called out a moment ago.
+   */
+  startTimer(role: Role, spellId: string, agoSec = 0): void {
+    this.timers.start(role, spellId, this.baseCooldownOf(role, spellId), agoSec, this.hasteOf(role));
   }
 
   /** Moves time forward by `dtSec` real seconds. */

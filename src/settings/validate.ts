@@ -30,6 +30,14 @@ export function findProblem(settings: Settings): Problem | null {
     }
   }
 
+  const voice = settings.voice;
+  if (voice.enabled) {
+    if (!voice.key) return { rows: [], message: "Pick a talk key for voice commands" };
+    if (voice.key === wheelKey) return { rows: [], message: "The talk key can't be the wheel hotkey" };
+    const clash = binds.findIndex((b) => b.keys.includes(voice.key));
+    if (clash >= 0) return { rows: [clash], message: `${keyLabel(voice.key)} is the talk key` };
+  }
+
   for (let i = 0; i < binds.length; i++) {
     for (let j = i + 1; j < binds.length; j++) {
       const [a, b] = [binds[i].keys, binds[j].keys];
