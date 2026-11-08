@@ -1,3 +1,4 @@
+use crate::quick_binds::QuickBind;
 use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf};
 use tauri::{AppHandle, Manager};
@@ -8,16 +9,19 @@ pub const DEFAULT_HOTKEY: &str = "Backquote";
 /// User settings, stored as `config.json` in the app config dir
 /// (%APPDATA%\com.rossxrio.summswheel on Windows).
 #[derive(Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, rename_all = "camelCase")]
 pub struct Config {
     /// Global shortcut, e.g. "Backquote", "Alt+Q", "F13". Uses W3C key code names.
     pub hotkey: String,
+    /// Key sequences typed while holding the hotkey (see quick_binds.rs).
+    pub quick_binds: Vec<QuickBind>,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
             hotkey: DEFAULT_HOTKEY.into(),
+            quick_binds: vec![],
         }
     }
 }

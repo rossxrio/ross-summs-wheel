@@ -1,87 +1,262 @@
 import "../styles/settings.css";
 
-import { settingsBackend as backend } from "../platform/settings";
+import { ROLE_LABEL, ROLES, SPELL_NAMES } from "../league/spells";
+import type { Role } from "../league/types";
+import { settingsBackend as backend, type Settings } from "../platform/settings";
 import { escapeHtml } from "../utils/html";
-import { heldModifiers, hotkeyFromEvent, hotkeyLabels, isModifier } from "./keys";
+import { heldModifiers, hotkeyFromEvent, hotkeyLabels, isModifier, keyLabel } from "./keys";
+import { findProblem } from "./validate";
 
 /** How long "Saved" shows before the window closes. */
 const CLOSE_DELAY_MS = 450;
+/** A bind sequence is at most this many keys... */
+const MAX_BIND_KEYS = 3;
+/** ...and recording stops this long after the last key. */
+const RECORD_IDLE_MS = 1200;
 
-const keysElement = document.getElementById("keys")!;
-const hintElement = document.getElementById("hint")!;
+const hotkeyButton = document.getElementById("hotkey") as HTMLButtonElement;
+const bindList = document.getElementById("binds")!;
+const bindsSub = document.getElementById("binds-sub")!;
+const statusElement = document.getElementById("status")!;
 const saveButton = document.getElementById("save") as HTMLButtonElement;
 
-let current = "";
-/** The captured hotkey, until it's saved or discarded. */
-let draft: string | null = null;
+// ---- State -----------------------------------------------------------------
+
+type Recording = { kind: "hotkey"; mods: string[] } | { kind: "bind"; index: number; before: string[]; idle?: number };
+
+let saved: Settings = { hotkey: "", quickBinds: [] };
+let draft: Settings = structuredClone(saved);
+let recording: Recording | null = null;
 let saving = false;
+/** Shown in the status line until the next change. */
+let notice: { text: string; tone: "error" | "ok" } | null = null;
 
-function render(labels: string[], pending = false): void {
-  keysElement.innerHTML = labels
-    .map((label) => `<kbd class="${pending ? "pending" : ""}">${escapeHtml(label)}</kbd>`)
-    .join('<span class="plus">+</span>');
+const isDirty = () => JSON.stringify(draft) !== JSON.stringify(saved);
+
+// ---- Rendering ---------------------------------------------------------------
+
+const keycaps = (labels: string[], separator: string, extra = "") =>
+  labels.map((label) => `<kbd class="${extra}">${escapeHtml(label)}</kbd>`).join(separator);
+
+function render(): void {
+  renderHotkey();
+  renderBinds();
+  renderFooter();
 }
 
-function hint(text: string, tone: "" | "error" | "ok" = ""): void {
-  hintElement.textContent = text;
-  hintElement.className = `hint ${tone}`;
+function renderHotkey(): void {
+  const rec = recording?.kind === "hotkey" ? recording : null;
+  hotkeyButton.classList.toggle("recording", !!rec);
+  hotkeyButton.innerHTML = rec
+    ? keycaps([...rec.mods, "…"], '<span class="plus">+</span>', "pending")
+    : keycaps(hotkeyLabels(draft.hotkey), '<span class="plus">+</span>');
+  bindsSub.textContent = `Hold ${hotkeyLabels(draft.hotkey).join(" + ")}, then type the keys`;
 }
 
-function showDraft(): void {
-  render(hotkeyLabels(draft ?? current));
-  saveButton.disabled = draft === null;
-  if (draft) hint("Enter to save · Esc to cancel");
-  else hint("Press a new key");
+function renderBinds(): void {
+  const problemRows = recording ? [] : (findProblem(draft)?.rows ?? []);
+  const options = (items: { value: string; label: string }[], selected: string) =>
+    items
+      .map(
+        (o) => `<option value="${o.value}"${o.value === selected ? " selected" : ""}>${escapeHtml(o.label)}</option>`,
+      )
+      .join("");
+
+  bindList.innerHTML = draft.quickBinds.length
+    ? draft.quickBinds
+        .map((bind, i) => {
+          const isRecording = recording?.kind === "bind" && recording.index === i;
+          const keys = bind.keys.length
+            ? keycaps(bind.keys.map(keyLabel), '<span class="then">›</span>')
+            : `<span class="placeholder">${isRecording ? "Type keys…" : "Record"}</span>`;
+          return `
+            <li class="bind${problemRows.includes(i) ? " problem" : ""}" data-index="${i}">
+              <select data-field="role" aria-label="Enemy">${options(
+                ROLES.map((r) => ({ value: r, label: ROLE_LABEL[r] })),
+                bind.role,
+              )}</select>
+              <select data-field="spell" aria-label="Spell">${options(
+                SPELL_NAMES.map((s) => ({ value: s.id, label: s.name })),
+                bind.spell,
+              )}</select>
+              <button class="keys${isRecording ? " recording" : ""}" data-action="record" title="Click to record">${keys}</button>
+              <button class="remove" data-action="remove" aria-label="Remove">&times;</button>
+            </li>`;
+        })
+        .join("")
+    : `<li class="empty">No quick binds yet</li>`;
 }
+
+function renderFooter(): void {
+  const problem = findProblem(draft);
+  let text = "Right Shift + hotkey opens this";
+  let tone = "";
+  if (recording?.kind === "hotkey") text = "Press the new hotkey · Esc to cancel";
+  else if (recording?.kind === "bind") text = "Type up to 3 keys · Enter to finish";
+  else if (notice) ({ text, tone } = notice);
+  else if (problem) [text, tone] = [problem.message, "error"];
+
+  statusElement.textContent = text;
+  statusElement.className = `status ${tone}`;
+  saveButton.disabled = saving || !!recording || !!problem || !isDirty();
+}
+
+// ---- Recording -----------------------------------------------------------------
+
+function startRecording(next: Recording): void {
+  finishRecording();
+  if (next.kind === "bind") draft.quickBinds[next.index].keys = [];
+  recording = next;
+  notice = null;
+  render();
+}
+
+/** Keeps what was typed. A bind left empty gets its old keys back, or goes if it was new. */
+function finishRecording(): void {
+  const rec = recording;
+  if (!rec) return;
+  recording = null;
+  if (rec.kind === "bind") {
+    window.clearTimeout(rec.idle);
+    const bind = draft.quickBinds[rec.index];
+    if (bind.keys.length === 0) {
+      if (rec.before.length) bind.keys = rec.before;
+      else draft.quickBinds.splice(rec.index, 1);
+    }
+  }
+  render();
+}
+
+/** Drops what was typed; finishRecording then restores the old keys (or drops a new row). */
+function cancelRecording(): void {
+  if (recording?.kind === "bind") draft.quickBinds[recording.index].keys = [];
+  finishRecording();
+}
+
+function recordKey(e: KeyboardEvent): void {
+  const rec = recording!;
+  if (rec.kind === "hotkey") {
+    if (isModifier(e.code)) {
+      rec.mods = heldModifiers(e);
+      return renderHotkey();
+    }
+    draft.hotkey = hotkeyFromEvent(e);
+    return finishRecording();
+  }
+
+  // Modifiers are implied: bind keys are pressed with the hotkey's modifiers held.
+  if (isModifier(e.code)) return;
+  const keys = draft.quickBinds[rec.index].keys;
+  keys.push(e.code);
+  window.clearTimeout(rec.idle);
+  if (keys.length >= MAX_BIND_KEYS) return finishRecording();
+  rec.idle = window.setTimeout(finishRecording, RECORD_IDLE_MS);
+  render();
+}
+
+// ---- Actions ---------------------------------------------------------------------
 
 async function save(): Promise<void> {
-  if (!draft || saving) return;
-  if (draft === current) return void backend.close();
+  if (saveButton.disabled) return;
   saving = true;
-  saveButton.disabled = true;
+  renderFooter();
   try {
-    await backend.setHotkey(draft);
-    current = draft;
-    draft = null;
-    keysElement.classList.add("saved");
-    hint("Saved", "ok");
+    await backend.saveSettings(draft);
+    saved = structuredClone(draft);
+    notice = { text: "Saved", tone: "ok" };
     window.setTimeout(() => void backend.close(), CLOSE_DELAY_MS);
   } catch (err) {
-    saving = false;
-    saveButton.disabled = false;
-    hint(String(err), "error");
+    notice = { text: String(err), tone: "error" };
   }
+  saving = false;
+  renderFooter();
+}
+
+function addBind(): void {
+  const used = new Set(draft.quickBinds.map((b) => b.role));
+  const role: Role = ROLES.find((r) => !used.has(r)) ?? "TOP";
+  draft.quickBinds.push({ role, spell: "SummonerFlash", keys: [] });
+  startRecording({ kind: "bind", index: draft.quickBinds.length - 1, before: [] });
+  bindList.lastElementChild?.scrollIntoView({ block: "nearest" });
 }
 
 window.addEventListener("keydown", (e) => {
-  // Keys are hotkey candidates here, not shortcuts or button presses.
-  e.preventDefault();
-  if (saving || e.repeat) return;
-
-  if (e.code === "Escape") return void backend.close();
-  if (e.code === "Enter" || e.code === "NumpadEnter") return void save();
-
-  if (isModifier(e.code)) {
-    const mods = heldModifiers(e);
-    if (mods.length) render([...mods, "…"], true);
-    return;
+  if (saving) return e.preventDefault();
+  if (recording) {
+    e.preventDefault();
+    if (e.repeat) return;
+    if (e.code === "Escape") return cancelRecording();
+    if (e.code === "Enter" || e.code === "NumpadEnter") return finishRecording();
+    return recordKey(e);
   }
-
-  draft = hotkeyFromEvent(e);
-  showDraft();
+  // Enter and Esc act on the window, never on a focused button.
+  if (e.code === "Escape") {
+    e.preventDefault();
+    void backend.close();
+  } else if (e.code === "Enter" || e.code === "NumpadEnter") {
+    e.preventDefault();
+    void save();
+  }
 });
 
 window.addEventListener("keyup", (e) => {
-  // Modifiers let go without a key: back to what was showing.
-  if (!saving && isModifier(e.code) && heldModifiers(e).length === 0) showDraft();
+  // Modifiers let go without a key: drop them from the hotkey preview.
+  if (recording?.kind === "hotkey" && isModifier(e.code)) {
+    recording.mods = heldModifiers(e);
+    renderHotkey();
+  }
 });
 
+// A click anywhere else ends recording first.
+document.addEventListener(
+  "pointerdown",
+  (e) => {
+    const target = e.target as Element;
+    const active = recording?.kind === "hotkey" ? hotkeyButton : bindList.querySelector(".keys.recording");
+    if (recording && !active?.contains(target)) finishRecording();
+  },
+  true,
+);
+
+hotkeyButton.addEventListener("click", () => {
+  if (recording?.kind === "hotkey") cancelRecording();
+  else startRecording({ kind: "hotkey", mods: [] });
+});
+
+bindList.addEventListener("click", (e) => {
+  const button = (e.target as Element).closest<HTMLElement>("[data-action]");
+  const index = Number(button?.closest<HTMLElement>(".bind")?.dataset.index);
+  if (!button || Number.isNaN(index)) return;
+
+  if (button.dataset.action === "remove") {
+    draft.quickBinds.splice(index, 1);
+    notice = null;
+    render();
+  } else if (recording?.kind === "bind" && recording.index === index) {
+    finishRecording();
+  } else {
+    startRecording({ kind: "bind", index, before: draft.quickBinds[index].keys });
+  }
+});
+
+bindList.addEventListener("change", (e) => {
+  const select = e.target as HTMLSelectElement;
+  const index = Number(select.closest<HTMLElement>(".bind")?.dataset.index);
+  const bind = draft.quickBinds[index];
+  if (select.dataset.field === "role") bind.role = select.value as Role;
+  else bind.spell = select.value;
+  notice = null;
+  render();
+});
+
+document.getElementById("add")!.addEventListener("click", addBind);
 saveButton.addEventListener("click", () => void save());
 document.getElementById("close")!.addEventListener("click", () => void backend.close());
 
 async function start(): Promise<void> {
-  current = await backend.getHotkey();
-  showDraft();
+  saved = await backend.getSettings();
+  draft = structuredClone(saved);
+  render();
 }
 
 void start();

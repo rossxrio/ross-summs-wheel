@@ -3,7 +3,7 @@ import "./styles/wheel.css";
 import "./styles/hud.css";
 
 import { Store } from "./app/store";
-import { roleItems, spellHint, spellItems, spellTitle } from "./app/wheel-content";
+import { roleItems, spellHint, spellIdsOf, spellItems, spellTitle } from "./app/wheel-content";
 import { renderHud } from "./hud/hud";
 import { backend } from "./platform/backend";
 import { WheelController } from "./wheel/controller";
@@ -57,6 +57,13 @@ function listenToMouse(): void {
 async function start(): Promise<void> {
   listenToMouse();
   await backend.onHotkey((pressed) => wheel.hotkey(pressed));
+  await backend.onQuickBind(({ role, spell }) => {
+    wheel.dismiss();
+    // Same rule as the wheel: only spells this enemy actually has.
+    if (!spellIdsOf(store, role).includes(spell)) return;
+    store.startTimer(role, spell);
+    redraw();
+  });
   await backend.onGameState((state) => {
     store.applyGameState(state);
     redraw();

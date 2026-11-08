@@ -23,9 +23,13 @@ export function roleItems(store: Store): WheelItem[] {
 }
 
 /** Spell wheel: the enemy's two spells in a live game, otherwise every spell. */
+/** The enemy's two spells, or every spell when we don't know what they took. */
+export function spellIdsOf(store: Store, role: Role): string[] {
+  return store.roster[role]?.spells.map(normalizeSpellId) ?? ALL_SPELL_IDS;
+}
+
 export function spellItems(store: Store, role: Role): WheelItem[] {
-  const ids = store.roster[role]?.spells.map(normalizeSpellId) ?? ALL_SPELL_IDS;
-  return ids.map((id) => spellItem(store, role, id));
+  return spellIdsOf(store, role).map((id) => spellItem(store, role, id));
 }
 
 function spellItem(store: Store, role: Role, spellId: string): WheelItem {

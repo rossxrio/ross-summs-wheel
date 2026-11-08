@@ -1,8 +1,10 @@
 /* Settings window (settings.html): a frameless, transparent window whose card is the whole UI. */
 
 :root {
-  --card: rgba(12, 14, 20, 0.96);
+  --card: rgba(12, 14, 20, 0.97);
   --line: rgba(200, 170, 110, 0.22);
+  --hairline: rgba(255, 255, 255, 0.06);
+  --field: #171a21;
   --accent: #c8aa6e; /* League gold */
   --text: #f0e6d2;
   --muted: #8c877b;
@@ -10,6 +12,7 @@
   --ok: #4ade80;
   font-family: "Segoe UI", system-ui, sans-serif;
   color: var(--text);
+  color-scheme: dark; /* dark native dropdowns */
 }
 
 html,
@@ -29,8 +32,8 @@ body.preview {
 }
 
 body.preview .card {
-  width: 340px;
-  height: 236px;
+  width: 380px;
+  height: 470px;
 }
 
 .card {
@@ -41,11 +44,13 @@ body.preview .card {
   padding: 14px 18px 16px;
   border: 1px solid var(--line);
   border-radius: 12px;
-  background: radial-gradient(120% 80% at 50% 0%, rgba(200, 170, 110, 0.08), transparent 70%), var(--card);
+  background: radial-gradient(120% 50% at 50% 0%, rgba(200, 170, 110, 0.08), transparent 70%), var(--card);
   animation: rise 160ms ease-out;
 }
 
-header {
+header,
+.section-head,
+footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -61,16 +66,18 @@ header {
 
 button {
   font: inherit;
+  color: inherit;
   cursor: pointer;
   border: none;
   outline: none;
+  background: none;
+  padding: 0;
 }
 
 .close {
   width: 24px;
   height: 24px;
   border-radius: 6px;
-  background: transparent;
   color: var(--muted);
   font-size: 18px;
   line-height: 1;
@@ -84,27 +91,17 @@ button {
   background: rgba(255, 255, 255, 0.06);
 }
 
-.keys {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-}
+/* ---- Keycaps ---- */
 
 kbd {
-  min-width: 44px;
-  height: 48px;
-  padding: 0 14px;
-  box-sizing: border-box;
   display: grid;
   place-items: center;
+  box-sizing: border-box;
   border: 1px solid var(--line);
-  border-bottom: 3px solid var(--accent);
-  border-radius: 8px;
+  border-bottom: 2px solid var(--accent);
+  border-radius: 6px;
   background: linear-gradient(#1c1f27, #13151b);
   font-family: inherit;
-  font-size: 20px;
   font-weight: 600;
   animation: pop 140ms ease-out;
 }
@@ -114,45 +111,210 @@ kbd.pending {
   color: var(--muted);
 }
 
-.keys.saved kbd {
-  border-bottom-color: var(--ok);
-}
-
-.plus {
+.plus,
+.then {
   color: var(--muted);
-  font-size: 14px;
+  font-size: 12px;
 }
 
-.hint {
-  margin: 0 0 14px;
-  min-height: 1.3em;
+/* ---- Wheel hotkey ---- */
+
+.hotkey {
+  align-self: center;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 0 18px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  transition: background 120ms;
+}
+
+.hotkey:hover,
+.hotkey.recording {
+  background: rgba(200, 170, 110, 0.06);
+}
+
+.hotkey kbd {
+  min-width: 44px;
+  height: 46px;
+  padding: 0 14px;
+  border-bottom-width: 3px;
+  font-size: 19px;
+}
+
+/* ---- Quick binds ---- */
+
+.binds {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding-top: 14px;
+  border-top: 1px solid var(--hairline);
+}
+
+.add {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  padding: 2px 6px;
+  border-radius: 5px;
+  transition: background 120ms;
+}
+
+.add:hover {
+  background: rgba(200, 170, 110, 0.1);
+}
+
+.sub {
+  margin: 4px 0 10px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.bind-list {
+  flex: 1;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+
+.bind {
+  display: grid;
+  grid-template-columns: 76px 86px 1fr 22px;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 4px;
+  border-radius: 8px;
+  animation: pop 140ms ease-out;
+}
+
+.bind.problem .keys {
+  border-color: rgba(248, 113, 113, 0.6);
+}
+
+.empty {
+  padding: 22px 0;
   text-align: center;
   font-size: 12px;
   color: var(--muted);
 }
 
-.hint.error {
-  color: var(--error);
+select {
+  appearance: none;
+  height: 30px;
+  padding: 0 20px 0 8px;
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  outline: none;
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%238c877b'/%3E%3C/svg%3E")
+      no-repeat right 8px center,
+    var(--field);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 120ms;
 }
 
-.hint.ok {
-  color: var(--ok);
+select:hover,
+select:focus {
+  border-color: var(--line);
 }
 
-footer {
+.keys {
+  height: 30px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding-top: 12px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  justify-content: center;
+  gap: 4px;
+  border: 1px dashed transparent;
+  border-radius: 6px;
+  transition:
+    border-color 120ms,
+    background 120ms;
 }
 
-.tip {
+.keys:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.keys:has(.placeholder) {
+  border-color: var(--hairline);
+}
+
+.keys.recording {
+  border-color: var(--accent);
+  background: rgba(200, 170, 110, 0.06);
+}
+
+.keys kbd {
+  min-width: 24px;
+  height: 24px;
+  padding: 0 6px;
+  font-size: 12px;
+}
+
+.placeholder {
   font-size: 11px;
   color: var(--muted);
 }
 
+.keys.recording .placeholder {
+  color: var(--accent);
+  animation: breathe 1.2s ease-in-out infinite;
+}
+
+.remove {
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  color: var(--muted);
+  font-size: 15px;
+  opacity: 0;
+  transition:
+    opacity 120ms,
+    color 120ms;
+}
+
+.bind:hover .remove,
+.remove:focus-visible {
+  opacity: 1;
+}
+
+.remove:hover {
+  color: var(--error);
+}
+
+/* ---- Footer ---- */
+
+footer {
+  gap: 12px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--hairline);
+}
+
+.status {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.status.error {
+  color: var(--error);
+}
+
+.status.ok {
+  color: var(--ok);
+}
+
 .save {
+  flex-shrink: 0;
   padding: 6px 16px;
   border-radius: 6px;
   background: var(--accent);
@@ -183,6 +345,12 @@ footer {
 @keyframes pop {
   from {
     opacity: 0;
-    transform: scale(0.92);
+    transform: scale(0.94);
+  }
+}
+
+@keyframes breathe {
+  50% {
+    opacity: 0.45;
   }
 }

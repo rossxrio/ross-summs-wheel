@@ -12,11 +12,19 @@
         <button class="close" id="close" aria-label="Close">&times;</button>
       </header>
 
-      <div class="keys" id="keys" aria-live="polite"></div>
-      <p class="hint" id="hint">Press a new key</p>
+      <button class="hotkey" id="hotkey" title="Click to change"></button>
+
+      <section class="binds">
+        <div class="section-head">
+          <span class="eyebrow">Quick binds</span>
+          <button class="add" id="add">+ Add</button>
+        </div>
+        <p class="sub" id="binds-sub"></p>
+        <ul class="bind-list" id="binds"></ul>
+      </section>
 
       <footer>
-        <span class="tip">Right Shift + hotkey opens this</span>
+        <span class="status" id="status"></span>
         <button class="save" id="save" disabled>Save</button>
       </footer>
     </main>

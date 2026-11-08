@@ -27,6 +27,9 @@ export function createPreviewBackend(): Backend {
 
     // The fake game never changes.
     async onGameState() {},
+
+    // Quick binds come from global shortcuts, which only exist in the real app.
+    async onQuickBind() {},
   };
 }
 

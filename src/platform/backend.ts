@@ -1,4 +1,4 @@
-import type { GameState, SpellData } from "../league/types";
+import type { GameState, Role, SpellData } from "../league/types";
 import type { WheelMode } from "../wheel/types";
 import { createPreviewBackend } from "./preview";
 import { tauriBackend } from "./tauri";
@@ -13,6 +13,14 @@ export interface Backend {
   /** Global hotkey: true on press, false on release. */
   onHotkey(handler: (pressed: boolean) => void): Promise<void>;
   onGameState(handler: (state: GameState) => void): Promise<void>;
+  /** A quick bind was typed while holding the hotkey (see src-tauri/src/quick_binds.rs). */
+  onQuickBind(handler: (bind: QuickBindHit) => void): Promise<void>;
+}
+
+/** `spell` is a base spell id, e.g. "SummonerFlash". */
+export interface QuickBindHit {
+  role: Role;
+  spell: string;
 }
 
 /** True inside the Tauri webview; false when the page is opened in a normal browser. */

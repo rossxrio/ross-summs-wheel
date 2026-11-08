@@ -17,6 +17,14 @@ export function isModifier(code: string): boolean {
   return MODIFIER_CODES.test(code);
 }
 
+/** The key code of a hotkey's main key, e.g. "Ctrl+Q" -> "KeyQ". */
+export function mainKeyCode(hotkey: string): string {
+  const key = hotkey.split("+").pop()!.trim();
+  if (/^[a-z]$/i.test(key)) return `Key${key.toUpperCase()}`;
+  if (/^\d$/.test(key)) return `Digit${key}`;
+  return key === "`" ? "Backquote" : key;
+}
+
 /** Labels of the modifiers held during `e`. */
 export function heldModifiers(e: KeyboardEvent): string[] {
   return MODIFIERS.filter((m) => m.held(e)).map((m) => m.label);
@@ -71,7 +79,8 @@ const KEY_LABELS: Record<string, string> = {
   CapsLock: "Caps",
 };
 
-function keyLabel(code: string): string {
+/** Label for one key code, e.g. "KeyQ" -> "Q". */
+export function keyLabel(code: string): string {
   if (KEY_LABELS[code]) return KEY_LABELS[code];
   const match = code.match(/^(?:Key|Digit)(.)$/);
   if (match) return match[1];

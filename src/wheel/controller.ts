@@ -125,6 +125,11 @@ export class WheelController {
     this.render();
   }
 
+  /** Closes the wheel without picking anything (a quick bind did the job). */
+  dismiss(): void {
+    if (this.isOpen) this.close();
+  }
+
   /** Re-render with fresh data (e.g. ticking timers) while open. */
   refresh(): void {
     if (this.isOpen) this.render();

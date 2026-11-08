@@ -1,7 +1,10 @@
 //! The settings window, opened with Right Shift + the hotkey or from the tray.
 //! Its page is `settings.html` / `src/settings/`.
 
-use crate::{config, hotkey, tray};
+use crate::{
+    config::{self, Config},
+    hotkey, tray,
+};
 use tauri::{async_runtime, AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
 
 const LABEL: &str = "settings";
@@ -43,7 +46,7 @@ pub fn open(app: &AppHandle) {
 fn build(app: &AppHandle) -> tauri::Result<WebviewWindow> {
     WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("settings.html".into()))
         .title("Summs Wheel Settings")
-        .inner_size(340.0, 236.0)
+        .inner_size(380.0, 470.0)
         .center()
         .resizable(false)
         .maximizable(false)
@@ -57,15 +60,15 @@ fn build(app: &AppHandle) -> tauri::Result<WebviewWindow> {
 }
 
 #[tauri::command]
-pub fn get_hotkey(app: AppHandle) -> String {
+pub fn get_settings(app: AppHandle) -> Config {
     hotkey::current(&app)
 }
 
-/// Switches to `hotkey` right away and saves it. The error is shown to the user.
+/// Puts the settings into use right away and saves them. The error is shown to the user.
 #[tauri::command]
-pub async fn set_hotkey(app: AppHandle, hotkey: String) -> Result<(), String> {
-    hotkey::apply(&app, &hotkey)?;
-    config::save(&app, &config::Config { hotkey: hotkey.clone() })?;
-    tray::show_hotkey(&app, &hotkey);
+pub async fn save_settings(app: AppHandle, settings: Config) -> Result<(), String> {
+    hotkey::apply(&app, &settings)?;
+    config::save(&app, &settings)?;
+    tray::show_hotkey(&app, &settings.hotkey);
     Ok(())
 }

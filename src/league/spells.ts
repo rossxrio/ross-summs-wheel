@@ -30,6 +30,9 @@ const FALLBACK_SPELLS: SpellInfo[] = [
 /** Spells offered on the wheel when we don't know what the enemy took. */
 export const ALL_SPELL_IDS = FALLBACK_SPELLS.map((s) => s.id);
 
+/** Spell names for pickers that can't wait for Data Dragon (settings page). */
+export const SPELL_NAMES: { id: string; name: string }[] = FALLBACK_SPELLS.map(({ id, name }) => ({ id, name }));
+
 export const fallbackSpellData = (): SpellData => ({
   version: null,
   spells: Object.fromEntries(FALLBACK_SPELLS.map((s) => [s.id, s])),

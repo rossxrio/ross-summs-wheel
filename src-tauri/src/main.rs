@@ -11,6 +11,7 @@
 mod config;
 mod hotkey;
 mod overlay;
+mod quick_binds;
 mod riot;
 mod settings;
 mod tray;
@@ -25,12 +26,12 @@ fn main() {
             riot::ddragon::get_spell_data,
             riot::live_client::get_game_state,
             overlay::set_wheel,
-            settings::get_hotkey,
-            settings::set_hotkey
+            settings::get_settings,
+            settings::save_settings
         ])
         .setup(|app| {
             let cfg = config::load(app.handle());
-            let hotkey_label = hotkey::init(app.handle(), &cfg.hotkey);
+            let hotkey_label = hotkey::init(app.handle(), &cfg);
             tray::build(app, &hotkey_label)?;
             overlay::setup(app)?;
             riot::live_client::spawn_poller(app.handle().clone());
