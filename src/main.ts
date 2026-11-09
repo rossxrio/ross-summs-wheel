@@ -1,19 +1,26 @@
 import "./styles/base.css";
 import "./styles/wheel.css";
 import "./styles/hud.css";
+import "./styles/voice.css";
 
 import { Store } from "./app/store";
-import { roleItems, spellHint, spellItems, spellTitle } from "./app/wheel-content";
+import type { Timer } from "./app/timers";
+import { roleItems, spellHint, spellIdsOf, spellItems, spellTitle } from "./app/wheel-content";
 import { renderHud } from "./hud/hud";
+import { normalizeSpellId, ROLE_LABEL, ROLES } from "./league/spells";
+import type { Role } from "./league/types";
 import { backend } from "./platform/backend";
 import { WheelController } from "./wheel/controller";
 import { WheelRenderer } from "./wheel/renderer";
+import { parseVoice, type VoiceEnemy } from "./voice/parse";
+import { VoiceToast } from "./voice/toast";
 
 /** How often timers advance and the HUD redraws. */
 const TICK_MS = 250;
 
 const store = new Store();
 const hudElement = document.getElementById("hud")!;
+const voiceToast = new VoiceToast(document.getElementById("voice")!);
 const wheelRenderer = new WheelRenderer(document.getElementById("wheel")!);
 
 const wheel = new WheelController({
@@ -27,7 +34,7 @@ const wheel = new WheelController({
     redraw();
   },
   commit: (role, spellId) => {
-    store.startTimer(role, spellId);
+    store.pickTimer(role, spellId);
     redraw();
   },
   render: (view) => wheelRenderer.render(view),
@@ -46,6 +53,46 @@ function tick(): void {
   redraw();
 }
 
+/** Timers started by voice, newest last, so "undo" can put each back. */
+const voiceUndo: { role: Role; spell: string; before?: Timer }[] = [];
+const VOICE_UNDO_DEPTH = 10;
+
+function voiceEnemies(): VoiceEnemy[] {
+  return ROLES.flatMap((role) => {
+    const enemy = store.roster[role];
+    return enemy ? [{ role, champion: enemy.champion, spells: enemy.spells.map(normalizeSpellId) }] : [];
+  });
+}
+
+function commandLabel(role: Role, spell: string): string {
+  const who = store.roster[role]?.champion ?? ROLE_LABEL[role];
+  return `${who} ${store.spellData.spells[spell]?.name ?? spell}`;
+}
+
+/** Acts on what Whisper heard: start (backdated) timers, or undo the last one. */
+function onVoice(words: Parameters<typeof parseVoice>[0], text: string): void {
+  const result = parseVoice(words, voiceEnemies());
+  const done: string[] = [];
+  for (const command of result.commands) {
+    if (command.kind === "undo") {
+      const last = voiceUndo.pop();
+      if (last) {
+        store.timers.restore(last.role, last.spell, last.before);
+        done.push(`Undid ${commandLabel(last.role, last.spell)}`);
+      }
+      continue;
+    }
+    const before = store.timers.get(command.role, command.spell);
+    voiceUndo.push({ role: command.role, spell: command.spell, before: before && { ...before } });
+    if (voiceUndo.length > VOICE_UNDO_DEPTH) voiceUndo.shift();
+    store.startTimer(command.role, command.spell, command.agoMs / 1000);
+    done.push(commandLabel(command.role, command.spell));
+  }
+  if (done.length) voiceToast.done(done.join(" · "));
+  else voiceToast.failed(text ? (result.problem ?? "Didn't catch a command") : "Didn't hear anything", text);
+  redraw();
+}
+
 /** The overlay only receives mouse events while the wheel is open. */
 function listenToMouse(): void {
   window.addEventListener("pointermove", (e) => wheel.pointer(e.clientX, e.clientY));
@@ -57,6 +104,17 @@ function listenToMouse(): void {
 async function start(): Promise<void> {
   listenToMouse();
   await backend.onHotkey((pressed) => wheel.hotkey(pressed));
+  await backend.onQuickBind(({ role, spell }) => {
+    wheel.dismiss();
+    // Same rule as the wheel: only spells this enemy actually has.
+    if (!spellIdsOf(store, role).includes(spell)) return;
+    store.pickTimer(role, spell);
+    redraw();
+  });
+  await backend.onVoiceListening((on) => voiceToast.listening(on));
+  await backend.onVoiceHeard((heard) => {
+    if (!heard.test) onVoice(heard.words, heard.text);
+  });
   await backend.onGameState((state) => {
     store.applyGameState(state);
     redraw();

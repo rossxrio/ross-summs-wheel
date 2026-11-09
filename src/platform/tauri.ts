@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { GameState, SpellData } from "../league/types";
-import type { Backend } from "./backend";
+import type { Backend, QuickBindHit, VoiceHeard } from "./backend";
 
 /** Commands and events defined in src-tauri/src (names must match there). */
 export const tauriBackend: Backend = {
@@ -15,5 +15,17 @@ export const tauriBackend: Backend = {
 
   async onGameState(handler) {
     await listen<GameState>("game-state", (event) => handler(event.payload));
+  },
+
+  async onQuickBind(handler) {
+    await listen<QuickBindHit>("quick-bind", (event) => handler(event.payload));
+  },
+
+  async onVoiceListening(handler) {
+    await listen<boolean>("voice-listening", (event) => handler(event.payload));
+  },
+
+  async onVoiceHeard(handler) {
+    await listen<VoiceHeard>("voice-heard", (event) => handler(event.payload));
   },
 };

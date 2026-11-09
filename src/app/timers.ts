@@ -22,9 +22,30 @@ export const READY_FLASH_MS = 4000;
 export class Timers {
   private timers = new Map<string, Timer>();
 
-  /** Starts (or restarts, on a re-pick) the cooldown for one enemy spell. */
-  start(role: Role, spellId: string, baseCooldownSec: number): void {
-    this.timers.set(key(role, spellId), { role, spellId, baseLeft: baseCooldownSec, readyAt: null });
+  /**
+   * Starts (or restarts) the cooldown for one enemy spell.
+   * `agoSec`: the spell was used that long ago (a voice command said a moment
+   * before it was understood), so that much is already off at `haste`.
+   */
+  start(role: Role, spellId: string, baseCooldownSec: number, agoSec = 0, haste = 0, now = Date.now()): void {
+    const baseLeft = Math.max(0, baseCooldownSec - (agoSec * (100 + haste)) / 100);
+    this.timers.set(key(role, spellId), { role, spellId, baseLeft, readyAt: baseLeft > 0 ? null : now });
+  }
+
+  /** Puts back a timer as it was before (undo), or removes it if there was none. */
+  restore(role: Role, spellId: string, before: Timer | undefined): void {
+    if (before) this.timers.set(key(role, spellId), { ...before });
+    else this.timers.delete(key(role, spellId));
+  }
+
+  /** Takes a timer away, e.g. one marked by mistake. */
+  remove(role: Role, spellId: string): void {
+    this.timers.delete(key(role, spellId));
+  }
+
+  /** Whether this spell is still on cooldown (not back up, not untracked). */
+  isRunning(role: Role, spellId: string): boolean {
+    return this.get(role, spellId)?.readyAt === null;
   }
 
   get(role: Role, spellId: string): Timer | undefined {

@@ -40,6 +40,13 @@ pub struct Enemy {
 #[derive(Default)]
 pub struct LiveState(Mutex<GameState>);
 
+/// Enemy champion names, for the voice model's prompt.
+pub fn enemy_champions(app: &AppHandle) -> Vec<String> {
+    let live = app.state::<LiveState>();
+    let state = live.0.lock().unwrap();
+    state.enemies.iter().map(|e| e.champion.clone()).collect()
+}
+
 #[tauri::command]
 pub fn get_game_state(state: State<'_, LiveState>) -> GameState {
     state.0.lock().unwrap().clone()
@@ -76,6 +83,7 @@ pub fn spawn_poller(app: AppHandle) {
                     changed
                 };
                 if changed {
+                    crate::voice::set_in_game(&app, next.in_game);
                     let _ = app.emit("game-state", next);
                 }
             }

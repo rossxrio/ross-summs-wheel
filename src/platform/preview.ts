@@ -1,5 +1,5 @@
 import type { GameState, SpellData } from "../league/types";
-import type { Backend } from "./backend";
+import type { Backend, VoiceHeard } from "./backend";
 
 /**
  * Browser stand-in for the Rust backend, so the wheel and HUD can be tried
@@ -8,8 +8,21 @@ import type { Backend } from "./backend";
  *   - a fake mid-game enemy team,
  *   - Data Dragon fetched directly from the browser.
  */
+const voiceListeners: { listening?: (on: boolean) => void; heard?: (heard: VoiceHeard) => void } = {};
+
+/** Pretends `text` was said into the talk key, with Whisper taking half a second. */
+function say(text: string): void {
+  voiceListeners.listening?.(true);
+  window.setTimeout(() => voiceListeners.listening?.(false), 800);
+  window.setTimeout(() => {
+    const words = text.split(/\s+/).map((word) => ({ text: word, agoMs: 1300 }));
+    voiceListeners.heard?.({ text, words, decodeMs: 500, test: false });
+  }, 1300);
+}
+
 export function createPreviewBackend(): Backend {
   document.body.classList.add("preview");
+  Object.assign(window, { say });
   return {
     getSpellData: fetchSpellData,
     getGameState: async () => PREVIEW_GAME,
@@ -27,6 +40,17 @@ export function createPreviewBackend(): Backend {
 
     // The fake game never changes.
     async onGameState() {},
+
+    // Quick binds come from global shortcuts, which only exist in the real app.
+    async onQuickBind() {},
+
+    // No microphone here: type `say("adc no flash")` in the devtools console.
+    async onVoiceListening(handler) {
+      voiceListeners.listening = handler;
+    },
+    async onVoiceHeard(handler) {
+      voiceListeners.heard = handler;
+    },
   };
 }
 

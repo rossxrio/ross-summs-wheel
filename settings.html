@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Summs Wheel Settings</title>
+  </head>
+  <body>
+    <main class="card">
+      <header class="top" data-tauri-drag-region>
+        <div class="brand" data-tauri-drag-region>
+          <span class="mark" aria-hidden="true"></span>
+          <span class="title" data-tauri-drag-region>Summs Wheel</span>
+        </div>
+        <div class="top-actions">
+          <button class="icon" id="overlay-toggle" aria-pressed="false"></button>
+          <button class="icon quit" id="quit" title="Quit Summs Wheel" aria-label="Quit Summs Wheel">
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M8 2v5.5" />
+              <path d="M4.6 4.4a5 5 0 1 0 6.8 0" />
+            </svg>
+          </button>
+          <span class="divider" aria-hidden="true"></span>
+          <button class="icon" id="close" title="Close (Esc)" aria-label="Close">
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M4 4l8 8M12 4l-8 8" />
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <section class="hero">
+        <button class="hotkey" id="hotkey" title="Click to change. A key or mouse button 4/5"></button>
+        <span class="hero-label">Wheel hotkey</span>
+      </section>
+
+      <div class="tabs" id="tabs" role="tablist" data-active="binds">
+        <span class="tab-ink" aria-hidden="true"></span>
+        <button class="tab" role="tab" data-tab="binds" aria-controls="panel-binds">
+          Quick binds <span class="count" id="binds-count"></span>
+        </button>
+        <button class="tab" role="tab" data-tab="voice" aria-controls="panel-voice">
+          Voice <span class="live" id="voice-live" aria-hidden="true"></span>
+        </button>
+      </div>
+
+      <div class="panels">
+        <section class="panel" id="panel-binds" role="tabpanel">
+          <div class="panel-head">
+            <p class="sub" id="binds-sub"></p>
+            <button class="add" id="add">
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.5v9M3.5 8h9" /></svg>
+              Add
+            </button>
+          </div>
+          <ul class="bind-list" id="binds"></ul>
+        </section>
+
+        <section class="panel" id="panel-voice" role="tabpanel" hidden>
+          <label class="toggle-row">
+            <span class="toggle-text">
+              <span class="toggle-title">Voice commands</span>
+              <span class="toggle-sub">Hold a key and say “ADC no flash”</span>
+            </span>
+            <span class="switch">
+              <input type="checkbox" id="voice-on" />
+              <span class="track"></span>
+            </span>
+          </label>
+
+          <div class="voice-body" id="voice-body">
+            <div class="voice-inner">
+              <div class="fields">
+                <span class="label">Talk key</span>
+                <button
+                  class="keys talk-key"
+                  id="voice-key"
+                  title="Click to change. A key or mouse button 4/5; it still reaches the game (and Discord)"
+                ></button>
+                <span class="label">Model</span>
+                <div class="model-row">
+                  <select id="voice-model" aria-label="Voice model"></select>
+                  <button class="small" id="voice-download"></button>
+                </div>
+              </div>
+
+              <div class="tester">
+                <button class="test" id="voice-test" aria-label="Hold to test">
+                  <span class="ring" aria-hidden="true"></span>
+                  <svg viewBox="0 0 16 16" aria-hidden="true">
+                    <rect x="5.75" y="1.75" width="4.5" height="8" rx="2.25" />
+                    <path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.25" />
+                  </svg>
+                </button>
+                <span class="test-label">Hold to test</span>
+                <p class="sub" id="voice-sub"></p>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <footer>
+        <span class="status" id="status"></span>
+        <button class="save" id="save" disabled>Save</button>
+      </footer>
+    </main>
+    <script type="module" src="/src/settings/main.ts"></script>
+  </body>
+</html>

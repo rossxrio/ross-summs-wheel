@@ -56,9 +56,22 @@ export class Store {
     if (!this.cosmicInsight.delete(role)) this.cosmicInsight.add(role);
   }
 
-  /** Starts from the base cooldown: timers apply the enemy's haste as they run. */
-  startTimer(role: Role, spellId: string): void {
-    this.timers.start(role, spellId, this.baseCooldownOf(role, spellId));
+  /**
+   * Starts from the base cooldown: timers apply the enemy's haste as they run.
+   * `agoSec` backdates it, for a spell called out a moment ago.
+   */
+  startTimer(role: Role, spellId: string, agoSec = 0): void {
+    this.timers.start(role, spellId, this.baseCooldownOf(role, spellId), agoSec, this.hasteOf(role));
+  }
+
+  /**
+   * A pick from the wheel or a quick bind. Picking a spell that's still on
+   * cooldown takes its timer away: the enemy can't have used it again yet, so
+   * it was marked by mistake. Once it's back up, a pick starts a new timer.
+   */
+  pickTimer(role: Role, spellId: string): void {
+    if (this.timers.isRunning(role, spellId)) this.timers.remove(role, spellId);
+    else this.startTimer(role, spellId);
   }
 
   /** Moves time forward by `dtSec` real seconds. */
