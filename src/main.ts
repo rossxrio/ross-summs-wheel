@@ -111,7 +111,10 @@ async function start(): Promise<void> {
     store.pickTimer(role, spell);
     redraw();
   });
-  await backend.onVoiceListening((on) => voiceToast.listening(on));
+  // The settings test button shows its own result.
+  await backend.onVoiceListening(({ state, test }) => {
+    if (!test) voiceToast.listening(state);
+  });
   await backend.onVoiceHeard((heard) => {
     if (!heard.test) onVoice(heard.words, heard.text);
   });

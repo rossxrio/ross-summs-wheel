@@ -538,6 +538,12 @@ async function start(): Promise<void> {
     download = progress;
     renderVoice();
   });
+  await backend.onVoiceListening(({ state, test }) => {
+    // The test press came to nothing: no transcript is coming.
+    if (!test || state !== "idle" || testing) return;
+    voiceNote = { text: "Too short: hold the button while you speak", tone: "error" };
+    renderVoice();
+  });
   await backend.onVoiceHeard((heard) => {
     if (!heard.test) return;
     voiceNote = { text: describeTest(heard.text, heard.words, heard.decodeMs), tone: heard.text ? "ok" : "error" };

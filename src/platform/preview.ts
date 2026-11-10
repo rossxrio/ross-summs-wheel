@@ -1,5 +1,5 @@
 import type { GameState, SpellData } from "../league/types";
-import type { Backend, VoiceHeard } from "./backend";
+import type { Backend, VoiceHeard, VoiceListening } from "./backend";
 
 /**
  * Browser stand-in for the Rust backend, so the wheel and HUD can be tried
@@ -8,12 +8,12 @@ import type { Backend, VoiceHeard } from "./backend";
  *   - a fake mid-game enemy team,
  *   - Data Dragon fetched directly from the browser.
  */
-const voiceListeners: { listening?: (on: boolean) => void; heard?: (heard: VoiceHeard) => void } = {};
+const voiceListeners: { listening?: (l: VoiceListening) => void; heard?: (heard: VoiceHeard) => void } = {};
 
 /** Pretends `text` was said into the talk key, with Whisper taking half a second. */
 function say(text: string): void {
-  voiceListeners.listening?.(true);
-  window.setTimeout(() => voiceListeners.listening?.(false), 800);
+  voiceListeners.listening?.({ state: "listening", test: false });
+  window.setTimeout(() => voiceListeners.listening?.({ state: "thinking", test: false }), 800);
   window.setTimeout(() => {
     const words = text.split(/\s+/).map((word) => ({ text: word, agoMs: 1300 }));
     voiceListeners.heard?.({ text, words, decodeMs: 500, test: false });

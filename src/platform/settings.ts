@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { Role } from "../league/types";
-import type { VoiceHeard } from "./backend";
+import type { VoiceHeard, VoiceListening } from "./backend";
 
 /** Mirrors `Config` in src-tauri/src/config.rs. */
 export interface Settings {
@@ -61,6 +61,7 @@ export interface SettingsBackend {
   onVoiceDownload(handler: (progress: DownloadProgress) => void): Promise<void>;
   /** The "hold to test" button: true on press, false on release. */
   voiceTest(pressed: boolean): Promise<void>;
+  onVoiceListening(handler: (listening: VoiceListening) => void): Promise<void>;
   onVoiceHeard(handler: (heard: VoiceHeard) => void): Promise<void>;
 }
 
@@ -80,6 +81,9 @@ const tauriSettings: SettingsBackend = {
     await listen<DownloadProgress>("voice-download", (e) => handler(e.payload));
   },
   voiceTest: (pressed) => invoke<void>("voice_test", { pressed }),
+  async onVoiceListening(handler) {
+    await listen<VoiceListening>("voice-listening", (e) => handler(e.payload));
+  },
   async onVoiceHeard(handler) {
     await listen<VoiceHeard>("voice-heard", (e) => handler(e.payload));
   },
@@ -104,6 +108,7 @@ function createPreviewSettings(): SettingsBackend {
   };
   let statusHandler: (s: VoiceStatus) => void = () => {};
   let heardHandler: (h: VoiceHeard) => void = () => {};
+  let listeningHandler: (l: VoiceListening) => void = () => {};
   let downloadHandler: (p: DownloadProgress) => void = () => {};
   let overlayShown = true;
   return {
@@ -132,7 +137,8 @@ function createPreviewSettings(): SettingsBackend {
     },
     onVoiceDownload: async (h) => void (downloadHandler = h),
     voiceTest: async (pressed) => {
-      if (pressed) return;
+      if (pressed) return listeningHandler({ state: "listening", test: true });
+      listeningHandler({ state: "thinking", test: true });
       const text = "ADC no flash";
       setTimeout(
         () =>
@@ -145,6 +151,7 @@ function createPreviewSettings(): SettingsBackend {
         450,
       );
     },
+    onVoiceListening: async (h) => void (listeningHandler = h),
     onVoiceHeard: async (h) => void (heardHandler = h),
   };
 }

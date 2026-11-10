@@ -86,6 +86,19 @@ pub struct VoiceStatus {
     models: Vec<models::ModelInfo>,
 }
 
+/// What the talk key is doing. Sent as `voice-listening`.
+#[derive(Clone, Serialize)]
+struct Listening {
+    /// "listening" while held, "thinking" while Whisper works on the clip,
+    /// "idle" when the press came to nothing (too short, or cut off).
+    state: &'static str,
+    test: bool,
+}
+
+fn listening(app: &AppHandle, state: &'static str, test: bool) {
+    let _ = app.emit("voice-listening", Listening { state, test });
+}
+
 /// One clip's transcript. Sent as `voice-heard`.
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -125,13 +138,13 @@ pub fn set_in_game(app: &AppHandle, in_game: bool) {
 }
 
 pub fn set_settings_open(app: &AppHandle, open: bool) {
-    let was_talking = with_inner(app, |inner| {
+    let dropped = with_inner(app, |inner| {
         inner.settings_open = open;
         // The talk key isn't watched while settings is open: don't wait for its release.
-        inner.talk.take().is_some()
+        inner.talk.take()
     });
-    if was_talking {
-        let _ = app.emit("voice-listening", false);
+    if let Some(talk) = dropped {
+        listening(app, "idle", talk.test);
     }
     refresh(app);
 }
@@ -215,7 +228,7 @@ pub fn talk(app: &AppHandle, pressed: bool, at: Instant, test: bool) {
             ready
         });
         if ready {
-            let _ = app.emit("voice-listening", true);
+            listening(app, "listening", test);
         } else {
             // A mic that dropped out (headset unplugged) is reopened for next time.
             refresh(app);
@@ -224,17 +237,22 @@ pub fn talk(app: &AppHandle, pressed: bool, at: Instant, test: bool) {
     }
 
     let Some(talk) = with_inner(app, |inner| inner.talk.take()) else {
+        // The press wasn't listened to (voice not ready). The test button
+        // still waits for an answer.
+        if test {
+            listening(app, "idle", true);
+        }
         return;
     };
-    let _ = app.emit("voice-listening", false);
-    if at.saturating_duration_since(talk.since) < MIN_HOLD {
-        return;
-    }
-    let Some((clip, jobs)) = with_inner(app, |inner| {
+    let clip = with_inner(app, |inner| {
         Some((inner.mic.as_ref()?.clip(), inner.engine.as_ref()?.jobs()))
-    }) else {
+    });
+    let Some((clip, jobs)) = clip.filter(|_| at.saturating_duration_since(talk.since) >= MIN_HOLD) else {
+        // A quick tap (often Discord push-to-talk): nothing to transcribe.
+        listening(app, "idle", talk.test);
         return;
     };
+    listening(app, "thinking", talk.test);
 
     let prompt = prompt(&live_client::enemy_champions(app));
     thread::spawn(move || {

@@ -1,3 +1,4 @@
+import type { VoiceListening } from "../platform/backend";
 import { escapeHtml } from "../utils/html";
 
 /** How long a result stays up. */
@@ -14,9 +15,11 @@ export class VoiceToast {
 
   constructor(private readonly root: HTMLElement) {}
 
-  listening(on: boolean): void {
-    if (on) this.show("listening", "Listening");
-    else this.show("thinking", "…", THINKING_MS);
+  listening(state: VoiceListening["state"]): void {
+    if (state === "listening") this.show("listening", "Listening");
+    else if (state === "thinking") this.show("thinking", "…", THINKING_MS);
+    // A quick tap (often Discord push-to-talk): nothing was sent to Whisper.
+    else this.hide();
   }
 
   done(text: string): void {
@@ -33,6 +36,11 @@ export class VoiceToast {
     this.root.className = state;
     this.root.innerHTML = `<span class="dot"></span>${escapeHtml(text)}`;
     this.root.hidden = false;
-    if (hideAfterMs) this.hideTimer = window.setTimeout(() => (this.root.hidden = true), hideAfterMs);
+    if (hideAfterMs) this.hideTimer = window.setTimeout(() => this.hide(), hideAfterMs);
+  }
+
+  private hide(): void {
+    window.clearTimeout(this.hideTimer);
+    this.root.hidden = true;
   }
 }
