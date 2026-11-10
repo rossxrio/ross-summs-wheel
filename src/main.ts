@@ -17,6 +17,8 @@ import { VoiceToast } from "./voice/toast";
 
 /** How often timers advance and the HUD redraws. */
 const TICK_MS = 250;
+/** Data Dragon is retried this often until it loads (the PC may start offline). */
+const SPELL_DATA_RETRY_MS = 60_000;
 
 const store = new Store();
 const hudElement = document.getElementById("hud")!;
@@ -107,6 +109,17 @@ function listenToMouse(): void {
   window.addEventListener("contextmenu", (e) => e.preventDefault());
 }
 
+/** Icons and this patch's cooldowns; the bundled cooldowns stand in until then. */
+async function loadSpellData(): Promise<void> {
+  try {
+    store.setSpellData(await backend.getSpellData());
+    redraw();
+  } catch (err) {
+    console.warn("Data Dragon unavailable, using bundled cooldowns for now:", err);
+    window.setTimeout(() => void loadSpellData(), SPELL_DATA_RETRY_MS);
+  }
+}
+
 async function start(): Promise<void> {
   listenToMouse();
   await backend.onHotkey((pressed) => wheel.hotkey(pressed));
@@ -126,11 +139,7 @@ async function start(): Promise<void> {
   });
   await backend.onGameState(applyGameState);
 
-  try {
-    store.setSpellData(await backend.getSpellData());
-  } catch (err) {
-    console.warn("Data Dragon unavailable, using bundled cooldowns:", err);
-  }
+  await loadSpellData();
   applyGameState(await backend.getGameState());
 
   tick();

@@ -59,7 +59,8 @@ pub async fn get_spell_data() -> Result<SpellData, String> {
 
 // Send + Sync so the command's future can run on Tauri's async runtime.
 async fn fetch() -> Result<SpellData, Box<dyn std::error::Error + Send + Sync>> {
-    let client = reqwest::Client::builder().timeout(Duration::from_secs(5)).build()?;
+    // item.json is several hundred KB: allow a slow connection time to fetch it.
+    let client = reqwest::Client::builder().timeout(Duration::from_secs(20)).build()?;
 
     let versions: Vec<String> = client
         .get(format!("{DDRAGON}/api/versions.json"))
