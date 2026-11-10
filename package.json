@@ -10,6 +10,7 @@
     "format": "prettier --write src tests index.html settings.html && cargo fmt --manifest-path src-tauri/Cargo.toml",
     "app:dev": "tauri dev",
     "app:build": "tauri build",
+    "app:release": "node scripts/build-installers.mjs",
     "icons": "tauri icon src-tauri/icons/app-icon.svg",
     "test": "node --test tests/*.test.ts && cargo test --manifest-path src-tauri/Cargo.toml",
     "tauri": "tauri"

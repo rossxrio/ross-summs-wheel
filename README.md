@@ -25,11 +25,16 @@ set `LIBCLANG_PATH=C:\Program Files\LLVM\bin`). Then:
 npm install
 npm run app:dev     # run
 npm run app:build   # installer
+npm run app:release # both release installers, in src-tauri/target/release/installers
 npm test            # parser + Rust tests
 ```
 
+`app:release` builds a small installer that downloads WebView2 only if the PC lacks it, and
+a `full-setup` one (~200 MB more) with WebView2 bundled that installs fully offline.
+
 `src-tauri/.cargo/config.toml` sets the whisper.cpp compiler flags. Without them, MSVC
-builds Whisper with no optimization and it runs about 20x slower.
+builds Whisper with no optimization and it runs about 20x slower. It also links the C
+runtime into the exe, so players don't need the Visual C++ Redistributable.
 
 ## Voice commands
 
