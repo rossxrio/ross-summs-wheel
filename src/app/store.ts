@@ -24,16 +24,19 @@ export class Store {
     };
   }
 
-  applyGameState(state: GameState): void {
+  /** Takes the latest game state. Returns true when it's a new match. */
+  applyGameState(state: GameState): boolean {
     this.roster = assignRoles(state.enemies);
     this.mapNumber = state.mapNumber;
     // A different set of enemy champions means a new match: old timers and toggles are meaningless.
     const match = matchKey(state.enemies);
-    if (match && match !== this.currentMatch) {
+    const newMatch = match !== "" && match !== this.currentMatch;
+    if (newMatch) {
       this.timers.clear();
       this.cosmicInsight.clear();
+      this.currentMatch = match;
     }
-    if (match) this.currentMatch = match;
+    return newMatch;
   }
 
   /** Current summoner spell haste of the enemy in this role. */

@@ -8,7 +8,7 @@ import type { Timer } from "./app/timers";
 import { roleItems, spellHint, spellIdsOf, spellItems, spellTitle } from "./app/wheel-content";
 import { renderHud } from "./hud/hud";
 import { normalizeSpellId, ROLE_LABEL, ROLES } from "./league/spells";
-import type { Role } from "./league/types";
+import type { GameState, Role } from "./league/types";
 import { backend } from "./platform/backend";
 import { WheelController } from "./wheel/controller";
 import { WheelRenderer } from "./wheel/renderer";
@@ -93,6 +93,12 @@ function onVoice(words: Parameters<typeof parseVoice>[0], text: string): void {
   redraw();
 }
 
+function applyGameState(state: GameState): void {
+  // "Undo" must never bring back a timer from the last match.
+  if (store.applyGameState(state)) voiceUndo.length = 0;
+  redraw();
+}
+
 /** The overlay only receives mouse events while the wheel is open. */
 function listenToMouse(): void {
   window.addEventListener("pointermove", (e) => wheel.pointer(e.clientX, e.clientY));
@@ -118,17 +124,14 @@ async function start(): Promise<void> {
   await backend.onVoiceHeard((heard) => {
     if (!heard.test) onVoice(heard.words, heard.text);
   });
-  await backend.onGameState((state) => {
-    store.applyGameState(state);
-    redraw();
-  });
+  await backend.onGameState(applyGameState);
 
   try {
     store.setSpellData(await backend.getSpellData());
   } catch (err) {
     console.warn("Data Dragon unavailable, using bundled cooldowns:", err);
   }
-  store.applyGameState(await backend.getGameState());
+  applyGameState(await backend.getGameState());
 
   tick();
   window.setInterval(tick, TICK_MS);
