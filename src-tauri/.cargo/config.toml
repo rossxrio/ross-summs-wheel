@@ -10,6 +10,11 @@ GGML_FMA = "ON"
 GGML_F16C = "ON"
 # The cmake crate replaces CMake's Release flags with its own, which under MSVC
 # leaves out /O2: whisper.cpp then runs ~20x slower. Put optimization back
-# (-MD matches the CRT Rust links against).
-CMAKE_C_FLAGS_RELEASE = "-nologo -MD -O2 -Ob2 -DNDEBUG"
-CMAKE_CXX_FLAGS_RELEASE = "-nologo -MD -O2 -Ob2 -DNDEBUG"
+# (-MT matches the static CRT Rust links, see the end of this file).
+CMAKE_C_FLAGS_RELEASE = "-nologo -MT -O2 -Ob2 -DNDEBUG"
+CMAKE_CXX_FLAGS_RELEASE = "-nologo -MT -O2 -Ob2 -DNDEBUG"
+
+# Link the C runtime into the exe (Rust here, whisper.cpp through -MT above), so the
+# app starts on PCs without the Visual C++ Redistributable (MSVCP140.dll).
+[target.'cfg(all(windows, target_env = "msvc"))']
+rustflags = ["-C", "target-feature=+crt-static"]
