@@ -55,6 +55,25 @@ Models (English, CPU): Fast `tiny.en` (78 MB, ~0.5 s), Balanced `base.en` (148 M
 Accurate `small.en` (488 MB, ~3 s). Measure on your machine with
 `cargo run --release --example voice_bench -- <model.bin> <clips dir>`.
 
+### Memory use
+
+Whisper keeps the whole model in RAM, so the model you pick sets most of the app's memory:
+
+| Model | App memory, voice on (approx.) |
+|---|---|
+| Voice off | ~200 MB |
+| Fast `tiny.en` | ~450 MB |
+| Balanced `base.en` | ~600 MB |
+| Accurate `small.en` | ~1.2–1.4 GB |
+
+About 160 MB of the total is WebView2, which draws the overlay; that part is normal for a
+Tauri app. The rest is the model plus Whisper's working buffers. A measured run with
+Accurate came to ~1.4 GB, of which ~1.2 GB was the model.
+
+The model stays loaded the whole time voice is on, even outside a game; only the mic
+closes. On a PC with 8 GB of RAM, use Fast or Balanced. Turning voice off in Settings and
+saving frees the memory right away.
+
 ---
 
 <div align="center">
