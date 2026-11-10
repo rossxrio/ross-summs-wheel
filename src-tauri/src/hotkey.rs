@@ -1,9 +1,9 @@
 //! Global shortcuts:
-//! - the wheel hotkey (seen through the plugin and the backups in key_watch.rs),
+//! - the wheel hotkey (seen through the plugin and the backups in key_watch),
 //! - three quick taps of the hotkey, which open the settings window,
 //! - quick-bind keys, registered only while the hotkey is held so they reach
 //!   the game normally the rest of the time,
-//! - the voice talk key, only watched (key_watch.rs), never registered.
+//! - the voice talk key, only watched (key_watch), never registered.
 //!
 //! Any of these can be mouse button 4 or 5 instead of a key. The plugin can't
 //! register those, so they're seen by key_watch's backup sources alone.
@@ -48,7 +48,7 @@ struct Bound {
     armed: Vec<Shortcut>,
 }
 
-/// Every way of seeing the keys (this plugin and the backups in key_watch.rs)
+/// Every way of seeing the keys (this plugin and the backups in key_watch)
 /// reports to `key_watch`, which passes each real press and release on to
 /// `on_edge` exactly once.
 pub fn plugin() -> TauriPlugin<Wry> {
@@ -134,13 +134,7 @@ pub fn init(app: &AppHandle, cfg: &Config) -> String {
         eprintln!("ignoring quick binds: {err}");
         Matcher::default()
     });
-    with_bound(app, |b| {
-        b.hotkey = cfg.hotkey.clone();
-        b.quick_binds = cfg.quick_binds.clone();
-        b.matcher = matcher;
-        b.voice = cfg.voice.clone();
-    });
-    voice::apply(app, &cfg.voice);
+    use_settings(app, cfg, matcher);
 
     let wanted = &cfg.hotkey;
     let label = match register(app, wanted) {
@@ -172,6 +166,12 @@ pub fn apply(app: &AppHandle, cfg: &Config) -> Result<(), String> {
     }
     register(app, &cfg.hotkey)?;
     pause(app);
+    use_settings(app, cfg, matcher);
+    Ok(())
+}
+
+/// Stores the settings in use and hands the voice ones on.
+fn use_settings(app: &AppHandle, cfg: &Config, matcher: Matcher) {
     with_bound(app, |b| {
         b.hotkey = cfg.hotkey.clone();
         b.quick_binds = cfg.quick_binds.clone();
@@ -179,7 +179,6 @@ pub fn apply(app: &AppHandle, cfg: &Config) -> Result<(), String> {
         b.voice = cfg.voice.clone();
     });
     voice::apply(app, &cfg.voice);
-    Ok(())
 }
 
 /// The settings in use.

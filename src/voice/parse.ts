@@ -7,7 +7,7 @@
  * spell words, pairs them, and keeps only pairs the enemy can actually have.
  * Anything unclear is rejected: no timer beats a wrong timer.
  *
- * Imports are type-only so scripts/voice-eval.ts can run this file in Node.
+ * Imports are type-only so tests/voice-parse.test.ts can run this file in Node.
  */
 import type { Role } from "../league/types";
 
