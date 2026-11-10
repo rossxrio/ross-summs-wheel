@@ -9,7 +9,7 @@ use sha2::{Digest, Sha256};
 use std::{
     fs,
     io::Write,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::Mutex,
     time::{Duration, Instant},
 };
@@ -126,17 +126,36 @@ async fn download(app: &AppHandle, model: &Model) -> Result<(), String> {
         fs::create_dir_all(dir).map_err(|e| format!("can't create {}: {e}", dir.display()))?;
     }
     let part = path.with_extension("part");
+    let result = fetch_to(app, model, &part).await;
+    if result.is_err() {
+        // Don't leave hundreds of MB of a broken download behind.
+        let _ = fs::remove_file(&part);
+    }
+    result?;
+    fs::rename(&part, &path).map_err(|e| format!("can't save the model: {e}"))?;
+    let _ = app.emit(
+        "voice-download",
+        Progress {
+            model: model.id,
+            received: model.bytes,
+            total: model.bytes,
+        },
+    );
+    Ok(())
+}
+
+/// Downloads the model into `part`, checking its hash.
+async fn fetch_to(app: &AppHandle, model: &Model, part: &Path) -> Result<(), String> {
     let url = format!(
         "https://huggingface.co/ggerganov/whisper.cpp/resolve/{REVISION}/{}",
         model.file
     );
-
     let fail = |e: reqwest::Error| format!("download failed: {e}");
     let mut res = reqwest::get(&url)
         .await
         .and_then(|r| r.error_for_status())
         .map_err(fail)?;
-    let mut file = fs::File::create(&part).map_err(|e| format!("can't write {}: {e}", part.display()))?;
+    let mut file = fs::File::create(part).map_err(|e| format!("can't write {}: {e}", part.display()))?;
     let mut hash = Sha256::new();
     let mut received = 0u64;
     let mut last_report = Instant::now();
@@ -161,17 +180,7 @@ async fn download(app: &AppHandle, model: &Model) -> Result<(), String> {
 
     let digest: String = hash.finalize().iter().map(|b| format!("{b:02x}")).collect();
     if digest != model.sha256 {
-        let _ = fs::remove_file(&part);
         return Err("the downloaded model is damaged; try again".into());
     }
-    fs::rename(&part, &path).map_err(|e| format!("can't save the model: {e}"))?;
-    let _ = app.emit(
-        "voice-download",
-        Progress {
-            model: model.id,
-            received,
-            total: model.bytes,
-        },
-    );
     Ok(())
 }
