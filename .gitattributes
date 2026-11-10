@@ -1,0 +1,5 @@
+# Keep LF everywhere: Prettier and rustfmt expect it, whatever core.autocrlf says.
+* text=auto eol=lf
+*.png binary
+*.ico binary
+*.icns binary
