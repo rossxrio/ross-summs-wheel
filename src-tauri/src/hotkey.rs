@@ -159,14 +159,19 @@ pub fn init(app: &AppHandle, cfg: &Config) -> String {
     label
 }
 
-/// Puts new settings into use. Fails (keeping nothing registered) if a key
-/// can't be parsed or another app has the hotkey.
+/// Puts new settings from the settings window into use. Fails if a key can't
+/// be parsed or another app has the hotkey.
+///
+/// The settings window is still open, so everything stays paused afterwards
+/// (registering is only the check that the hotkey is free); closing the
+/// window resumes with the new settings.
 pub fn apply(app: &AppHandle, cfg: &Config) -> Result<(), String> {
     let matcher = Matcher::new(&cfg.quick_binds)?;
     if !cfg.voice.key.is_empty() {
         (cfg.voice.key.parse::<Button>()).map_err(|_| format!("{} can't be the talk key", cfg.voice.key))?;
     }
     register(app, &cfg.hotkey)?;
+    pause(app);
     with_bound(app, |b| {
         b.hotkey = cfg.hotkey.clone();
         b.quick_binds = cfg.quick_binds.clone();
@@ -174,7 +179,6 @@ pub fn apply(app: &AppHandle, cfg: &Config) -> Result<(), String> {
         b.voice = cfg.voice.clone();
     });
     voice::apply(app, &cfg.voice);
-    watch_voice(app);
     Ok(())
 }
 
