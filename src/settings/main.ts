@@ -535,6 +535,8 @@ async function start(): Promise<void> {
     render();
   });
   await backend.onVoiceDownload((progress) => {
+    // Events can arrive after the download command returned; don't bring it back.
+    if (!download) return;
     download = progress;
     renderVoice();
   });
