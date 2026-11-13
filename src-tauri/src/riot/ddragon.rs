@@ -130,8 +130,11 @@ fn summoner_haste(description: &str) -> Option<f64> {
     }
     let text = text.trim_end();
     let start = text
-        .rfind(|c: char| !(c.is_ascii_digit() || c == '.'))
-        .map_or(0, |i| i + 1);
+        .char_indices()
+        .rev()
+        .find(|&(_, c)| !(c.is_ascii_digit() || c == '.'))
+        // Past the whole character: it may be more than one byte (a no-break space).
+        .map_or(0, |(i, c)| i + c.len_utf8());
     text[start..].parse().ok()
 }
 
@@ -148,5 +151,11 @@ mod tests {
             Some(20.0)
         );
         assert_eq!(summoner_haste("<stats>40 Ability Haste</stats>"), None);
+    }
+
+    #[test]
+    fn multibyte_text_before_the_number_does_not_panic() {
+        assert_eq!(summoner_haste("Gain\u{a0}10 Summoner Spell Haste."), Some(10.0));
+        assert_eq!(summoner_haste("Gain \u{2013}15 Summoner Spell Haste."), Some(15.0));
     }
 }
