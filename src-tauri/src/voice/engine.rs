@@ -5,8 +5,9 @@ use super::{mic::Audio, Heard, HeardWord};
 use std::{
     path::PathBuf,
     sync::{
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         mpsc::{self, Receiver, Sender},
-        Arc, Mutex,
+        Arc, Mutex, PoisonError,
     },
     thread,
     time::{Duration, Instant},
@@ -23,6 +24,12 @@ const MIN_SAMPLES: usize = SAMPLE_RATE as usize * 11 / 10;
 const SILENCE_RMS: f32 = 0.004;
 /// Whisper's own guess that a clip has no speech, above which it's ignored.
 const NO_SPEECH: f32 = 0.6;
+/// Clips waiting or being transcribed at most: one working, one next.
+const MAX_QUEUED: usize = 2;
+
+/// One model loads at a time: switching models quickly in settings would
+/// otherwise load several at once (up to ~1 GB each).
+static LOADING: Mutex<()> = Mutex::new(());
 
 #[derive(Clone, PartialEq)]
 pub enum State {
@@ -41,36 +48,83 @@ pub struct Engine {
     pub model: String,
     jobs: Sender<Job>,
     state: Arc<Mutex<State>>,
+    /// Clips sent and not yet answered.
+    queued: Arc<AtomicUsize>,
+    /// Set when dropped, so a load that hasn't started yet is skipped.
+    dropped: Arc<AtomicBool>,
+}
+
+/// Where to send one clip; it already counts toward `MAX_QUEUED`.
+pub struct Slot(Sender<Job>);
+
+impl Slot {
+    pub fn send(self, job: Job) {
+        let _ = self.0.send(job);
+    }
+}
+
+struct Worker {
+    state: Arc<Mutex<State>>,
+    queued: Arc<AtomicUsize>,
+    dropped: Arc<AtomicBool>,
 }
 
 impl Engine {
     pub fn start(app: AppHandle, model: String, path: PathBuf) -> Self {
         let (jobs, rx) = mpsc::channel();
-        let state = Arc::new(Mutex::new(State::Loading));
-        let worker_state = state.clone();
+        let engine = Self {
+            model,
+            jobs,
+            state: Arc::new(Mutex::new(State::Loading)),
+            queued: Arc::default(),
+            dropped: Arc::default(),
+        };
+        let worker = Worker {
+            state: engine.state.clone(),
+            queued: engine.queued.clone(),
+            dropped: engine.dropped.clone(),
+        };
         let spawned = thread::Builder::new()
             .name("whisper".into())
-            .spawn(move || run(&app, &path, rx, &worker_state));
+            .spawn(move || run(&app, &path, rx, &worker));
         if let Err(err) = spawned {
-            *state.lock().unwrap() = State::Failed(format!("can't start the voice worker: {err}"));
+            *engine.state.lock().unwrap() = State::Failed(format!("can't start the voice worker: {err}"));
         }
-        Self { model, jobs, state }
+        engine
     }
 
     pub fn state(&self) -> State {
         self.state.lock().unwrap().clone()
     }
 
-    pub fn jobs(&self) -> Sender<Job> {
-        self.jobs.clone()
+    /// Room for one more clip, or `None` while Whisper is `MAX_QUEUED` behind.
+    pub fn queue(&self) -> Option<Slot> {
+        self.queued
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| {
+                (n < MAX_QUEUED).then_some(n + 1)
+            })
+            .ok()
+            .map(|_| Slot(self.jobs.clone()))
     }
 }
 
-fn run(app: &AppHandle, path: &PathBuf, jobs: Receiver<Job>, state: &Mutex<State>) {
+impl Drop for Engine {
+    fn drop(&mut self) {
+        self.dropped.store(true, Ordering::SeqCst);
+    }
+}
+
+fn run(app: &AppHandle, path: &PathBuf, jobs: Receiver<Job>, worker: &Worker) {
+    let state = &worker.state;
     let set = |next: State| {
         *state.lock().unwrap() = next;
         super::emit_status(app);
     };
+    let loading = LOADING.lock().unwrap_or_else(PoisonError::into_inner);
+    // Replaced (another model picked, voice turned off) while waiting its turn.
+    if worker.dropped.load(Ordering::SeqCst) {
+        return;
+    }
     // whisper.cpp logs every load step to stderr; keep it quiet.
     whisper_rs::install_logging_hooks();
     let loaded = WhisperContext::new_with_params(path, WhisperContextParameters::default())
@@ -83,12 +137,14 @@ fn run(app: &AppHandle, path: &PathBuf, jobs: Receiver<Job>, state: &Mutex<State
             )))
         }
     };
+    drop(loading);
     set(State::Ready);
 
     // Leave most of the CPU to the game.
     let threads = thread::available_parallelism().map_or(2, |n| (n.get() / 2).clamp(1, 4)) as i32;
     for job in jobs {
         let heard = transcribe(&ctx, &mut whisper, job, threads);
+        worker.queued.fetch_sub(1, Ordering::SeqCst);
         let _ = app.emit("voice-heard", heard);
     }
 }

@@ -17,11 +17,14 @@ pub mod models;
 use crate::{overlay, riot::live_client};
 use serde::{Deserialize, Serialize};
 use std::{
-    sync::Mutex,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Mutex, PoisonError,
+    },
     thread,
     time::{Duration, Instant},
 };
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{async_runtime, AppHandle, Emitter, Manager};
 
 /// Taps shorter than this are ignored (a quick Discord push-to-talk tap).
 const MIN_HOLD: Duration = Duration::from_millis(250);
@@ -149,9 +152,33 @@ pub fn set_settings_open(app: &AppHandle, open: bool) {
     refresh(app);
 }
 
-/// Loads or drops the model and opens or closes the mic to match the settings.
+/// Set while a refresh is waiting to start; more requests until then share it.
+static REFRESH_QUEUED: AtomicBool = AtomicBool::new(false);
+/// One refresh at a time. Each matches the state when it starts, so the last one wins.
+static REFRESHING: Mutex<()> = Mutex::new(());
+
+/// Loads or drops the model and opens or closes the mic to match the settings,
+/// in the background: opening the mic can take a second, and callers include
+/// the main thread (talk key, settings window).
 fn refresh(app: &AppHandle) {
-    with_inner(app, |inner| {
+    if REFRESH_QUEUED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let app = app.clone();
+    async_runtime::spawn_blocking(move || {
+        let _one = REFRESHING.lock().unwrap_or_else(PoisonError::into_inner);
+        // Changes from here on need a refresh of their own.
+        REFRESH_QUEUED.store(false, Ordering::SeqCst);
+        refresh_now(&app);
+    });
+}
+
+fn wants_mic(inner: &Inner) -> bool {
+    inner.engine.is_some() && (inner.in_game || inner.settings_open)
+}
+
+fn refresh_now(app: &AppHandle) {
+    let open_mic = with_inner(app, |inner| {
         let cfg = &inner.config;
         let model_path = models::path(app, &cfg.model).filter(|_| models::is_downloaded(app, &cfg.model));
         match model_path {
@@ -164,21 +191,34 @@ fn refresh(app: &AppHandle) {
             _ => inner.engine = None,
         }
 
-        let want_mic = inner.engine.is_some() && (inner.in_game || inner.settings_open);
-        if !want_mic {
+        if !wants_mic(inner) {
             inner.mic = None;
             inner.mic_error = None;
+            false
         } else if inner.mic.as_ref().is_none_or(mic::Mic::failed) {
             inner.mic = None;
-            match mic::Mic::open() {
+            true
+        } else {
+            false
+        }
+    });
+    if open_mic {
+        // Not under the lock: the talk key and the status need it meanwhile.
+        let opened = mic::Mic::open();
+        with_inner(app, |inner| {
+            // Settings closed or the game ended while it opened: let it go.
+            if !wants_mic(inner) {
+                return;
+            }
+            match opened {
                 Ok(m) => {
                     inner.mic = Some(m);
                     inner.mic_error = None;
                 }
                 Err(err) => inner.mic_error = Some(err),
             }
-        }
-    });
+        });
+    }
     emit_status(app);
 }
 
@@ -244,11 +284,17 @@ pub fn talk(app: &AppHandle, pressed: bool, at: Instant, test: bool) {
         }
         return;
     };
-    let clip = with_inner(app, |inner| {
-        Some((inner.mic.as_ref()?.clip(), inner.engine.as_ref()?.jobs()))
-    });
-    let Some((clip, jobs)) = clip.filter(|_| at.saturating_duration_since(talk.since) >= MIN_HOLD) else {
+    if at.saturating_duration_since(talk.since) < MIN_HOLD {
         // A quick tap (often Discord push-to-talk): nothing to transcribe.
+        listening(app, "idle", talk.test);
+        return;
+    }
+    // Whisper still busy with earlier clips (the key is also Discord's
+    // push-to-talk): this one is dropped rather than answered minutes late.
+    let clip = with_inner(app, |inner| {
+        Some((inner.mic.as_ref()?.clip(), inner.engine.as_ref()?.queue()?))
+    });
+    let Some((clip, jobs)) = clip else {
         listening(app, "idle", talk.test);
         return;
     };
@@ -258,7 +304,7 @@ pub fn talk(app: &AppHandle, pressed: bool, at: Instant, test: bool) {
     thread::spawn(move || {
         thread::sleep(TAIL);
         let clip = clip.since(talk.since.checked_sub(PRE_ROLL).unwrap_or(talk.since));
-        let _ = jobs.send(engine::Job {
+        jobs.send(engine::Job {
             clip,
             prompt,
             test: talk.test,
