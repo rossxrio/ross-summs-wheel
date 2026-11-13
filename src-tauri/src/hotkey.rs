@@ -17,7 +17,7 @@ use crate::{
     voice::{self, VoiceConfig},
 };
 use std::{
-    sync::Mutex,
+    sync::{mpsc, Mutex},
     time::{Duration, Instant},
 };
 use tauri::{plugin::TauriPlugin, AppHandle, Emitter, Manager, Wry};
@@ -159,15 +159,37 @@ pub fn init(app: &AppHandle, cfg: &Config) -> String {
 /// The settings window is still open, so everything stays paused afterwards
 /// (registering is only the check that the hotkey is free); closing the
 /// window resumes with the new settings.
+///
+/// Called from a command thread; the work is done on the main thread (see `on_main`).
 pub fn apply(app: &AppHandle, cfg: &Config) -> Result<(), String> {
     let matcher = Matcher::new(&cfg.quick_binds)?;
     if !cfg.voice.key.is_empty() {
         (cfg.voice.key.parse::<Button>()).map_err(|_| format!("{} can't be the talk key", cfg.voice.key))?;
     }
-    register(app, &cfg.hotkey)?;
-    pause(app);
-    use_settings(app, cfg, matcher);
-    Ok(())
+    let cfg = cfg.clone();
+    on_main(app, move |app| {
+        register(app, &cfg.hotkey)?;
+        pause(app);
+        use_settings(app, &cfg, matcher);
+        Ok(())
+    })?
+}
+
+/// Runs `f` on the main thread and waits for it.
+///
+/// Shortcuts must only be changed there. The plugin holds its lock while it
+/// waits for the main thread to (un)register, and the main thread takes that
+/// same lock for every shortcut press: changed from any other thread, one
+/// key press at the wrong moment freezes the whole app. On the main thread
+/// the plugin's calls run inline instead, and changes happen in order.
+fn on_main<T: Send + 'static>(app: &AppHandle, f: impl FnOnce(&AppHandle) -> T + Send + 'static) -> Result<T, String> {
+    let (tx, rx) = mpsc::channel();
+    let handle = app.clone();
+    app.run_on_main_thread(move || {
+        let _ = tx.send(f(&handle));
+    })
+    .map_err(|err| err.to_string())?;
+    rx.recv().map_err(|err| err.to_string())
 }
 
 /// Stores the settings in use and hands the voice ones on.
@@ -191,6 +213,7 @@ pub fn current(app: &AppHandle) -> Config {
 }
 
 /// Releases every shortcut so the settings window can capture keys normally.
+/// Main thread only (see `on_main`).
 pub fn pause(app: &AppHandle) {
     let _ = app.global_shortcut().unregister_all();
     with_bound(app, |b| {
@@ -203,7 +226,7 @@ pub fn pause(app: &AppHandle) {
     key_watch::set_voice(None);
 }
 
-/// Registers the hotkey in use again after `pause`.
+/// Registers the hotkey in use again after `pause`. Main thread only (see `on_main`).
 pub fn resume(app: &AppHandle) {
     let hotkey = with_bound(app, |b| b.hotkey.clone());
     if let Err(err) = register(app, &hotkey) {

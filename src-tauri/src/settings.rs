@@ -9,31 +9,30 @@ use tauri::{async_runtime, AppHandle, Manager, WebviewUrl, WebviewWindow, Webvie
 
 const LABEL: &str = "settings";
 
-/// Opens the settings window, or focuses it if it's already open.
+/// Opens the settings window, or focuses it if it's already open. Called on
+/// the main thread (hotkey taps, tray menu).
 ///
 /// The global shortcuts are paused while it's open, so the page can capture
-/// the current hotkey like any other key press.
+/// the current hotkey like any other key press. Pausing here and resuming in
+/// the window's Destroyed handler, both on the main thread, keeps them in the
+/// order they happened however fast the window is closed and reopened.
 pub fn open(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window(LABEL) {
+        let _ = window.set_focus();
+        return;
+    }
+    hotkey::pause(app);
+    // The mic opens for the "hold to test" button.
+    voice::set_settings_open(app, true);
     let app = app.clone();
     // Building a window from a shortcut or menu handler can deadlock on Windows.
     async_runtime::spawn(async move {
-        if let Some(window) = app.get_webview_window(LABEL) {
-            let _ = window.set_focus();
-            return;
-        }
-        hotkey::pause(&app);
         match build(&app) {
             Ok(window) => {
-                // The mic opens for the "hold to test" button.
-                voice::set_settings_open(&app, true);
                 let app = app.clone();
                 window.on_window_event(move |event| {
                     if matches!(event, WindowEvent::Destroyed) {
-                        let app = app.clone();
-                        async_runtime::spawn(async move {
-                            voice::set_settings_open(&app, false);
-                            hotkey::resume(&app);
-                        });
+                        closed(&app);
                     }
                 });
             }
@@ -41,11 +40,18 @@ pub fn open(app: &AppHandle) {
                 eprintln!("can't open settings: {err}");
                 // A second open racing the first fails here; only resume if no window won.
                 if app.get_webview_window(LABEL).is_none() {
-                    hotkey::resume(&app);
+                    let handle = app.clone();
+                    let _ = app.run_on_main_thread(move || closed(&handle));
                 }
             }
         }
     });
+}
+
+/// The window is gone. Main thread only, like `open`.
+fn closed(app: &AppHandle) {
+    voice::set_settings_open(app, false);
+    hotkey::resume(app);
 }
 
 fn build(app: &AppHandle) -> tauri::Result<WebviewWindow> {

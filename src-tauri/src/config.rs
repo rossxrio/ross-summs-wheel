@@ -8,7 +8,7 @@ pub const DEFAULT_HOTKEY: &str = "Backquote";
 
 /// User settings, stored as `config.json` in the app config dir
 /// (%APPDATA%\com.rossxrio.summswheel on Windows).
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Config {
     /// Global shortcut, e.g. "Backquote", "Alt+Q", "F13", "Mouse4". Uses W3C
