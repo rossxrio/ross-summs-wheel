@@ -18,6 +18,9 @@ pub struct Config {
     pub quick_binds: Vec<QuickBind>,
     /// Push-to-talk voice commands (see voice/).
     pub voice: VoiceConfig,
+    /// Whether the overlay plays its sounds (voice cues, enemy spell back up).
+    /// Changed by the settings window's speaker button, which applies at once.
+    pub sounds: bool,
 }
 
 impl Default for Config {
@@ -26,6 +29,7 @@ impl Default for Config {
             hotkey: DEFAULT_HOTKEY.into(),
             quick_binds: vec![],
             voice: VoiceConfig::default(),
+            sounds: true,
         }
     }
 }
@@ -51,6 +55,19 @@ pub fn load(app: &AppHandle) -> Config {
             }
             cfg
         }
+    }
+}
+
+/// The saved file as it is: `None` when there's none yet, an error when it
+/// can't be read or has a mistake in it.
+pub fn read(app: &AppHandle) -> Result<Option<Config>, String> {
+    let path = path(app).ok_or("no config directory")?;
+    match fs::read_to_string(&path) {
+        Ok(text) => serde_json::from_str(&text)
+            .map(Some)
+            .map_err(|err| format!("{} has a mistake in it ({err}); fix or delete it", path.display())),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(err) => Err(format!("can't read {}: {err}", path.display())),
     }
 }
 

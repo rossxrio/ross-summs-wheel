@@ -28,4 +28,10 @@ export const tauriBackend: Backend = {
   async onVoiceHeard(handler) {
     await listen<VoiceHeard>("voice-heard", (event) => handler(event.payload));
   },
+
+  getSoundsOn: async () => (await invoke<{ sounds: boolean }>("get_settings")).sounds,
+
+  async onSoundsOn(handler) {
+    await listen<boolean>("sounds", (event) => handler(event.payload));
+  },
 };

@@ -3,6 +3,7 @@ import "./styles/wheel.css";
 import "./styles/hud.css";
 import "./styles/voice.css";
 
+import { playSpellUp, setSoundsOn, voiceListening, voiceResult } from "./app/sounds";
 import { Store } from "./app/store";
 import type { Timer } from "./app/timers";
 import { roleItems, spellHint, spellIdsOf, spellItems, spellTitle } from "./app/wheel-content";
@@ -50,8 +51,9 @@ function redraw(): void {
 let lastTick = performance.now();
 function tick(): void {
   const now = performance.now();
-  store.advance((now - lastTick) / 1000);
+  const up = store.advance((now - lastTick) / 1000);
   lastTick = now;
+  if (up.length) playSpellUp();
   redraw();
 }
 
@@ -90,8 +92,12 @@ function onVoice(words: Parameters<typeof parseVoice>[0], text: string): void {
     store.startTimer(command.role, command.spell, command.agoMs / 1000);
     done.push(commandLabel(command.role, command.spell));
   }
-  if (done.length) voiceToast.done(done.join(" · "));
-  else voiceToast.failed(text ? (result.problem ?? "Didn't catch a command") : "Didn't hear anything", text);
+  if (done.length) {
+    voiceToast.done(done.join(" · "));
+  } else {
+    voiceToast.failed(text ? (result.problem ?? "Didn't catch a command") : "Didn't hear anything", text);
+  }
+  voiceResult(done.length > 0);
   redraw();
 }
 
@@ -132,12 +138,16 @@ async function start(): Promise<void> {
   });
   // The settings test button shows its own result.
   await backend.onVoiceListening(({ state, test }) => {
-    if (!test) voiceToast.listening(state);
+    if (test) return;
+    voiceToast.listening(state);
+    voiceListening(state);
   });
   await backend.onVoiceHeard((heard) => {
     if (!heard.test) onVoice(heard.words, heard.text);
   });
   await backend.onGameState(applyGameState);
+  await backend.onSoundsOn(setSoundsOn);
+  setSoundsOn(await backend.getSoundsOn());
 
   await loadSpellData();
   applyGameState(await backend.getGameState());

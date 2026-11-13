@@ -60,16 +60,22 @@ export class Timers {
     this.timers.clear();
   }
 
-  /** Moves every running timer forward by `dtSec` real seconds at its enemy's current haste. */
-  advance(dtSec: number, hasteOf: (role: Role) => number, now = Date.now()): void {
+  /**
+   * Moves every running timer forward by `dtSec` real seconds at its enemy's
+   * current haste. Returns the timers that came back up in this step.
+   */
+  advance(dtSec: number, hasteOf: (role: Role) => number, now = Date.now()): Timer[] {
+    const up: Timer[] = [];
     for (const t of this.timers.values()) {
       if (t.readyAt !== null) continue;
       t.baseLeft -= (dtSec * (100 + hasteOf(t.role))) / 100;
       if (t.baseLeft <= 0) {
         t.baseLeft = 0;
         t.readyAt = now;
+        up.push(t);
       }
     }
+    return up;
   }
 
   /** Drops timers that are up and have finished flashing. */

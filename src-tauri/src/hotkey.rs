@@ -39,6 +39,7 @@ struct Bound {
     quick_binds: Vec<QuickBind>,
     matcher: Matcher,
     voice: VoiceConfig,
+    sounds: bool,
     /// `None` while paused (settings window open).
     wheel: Option<Hotkey>,
     taps: Taps,
@@ -199,6 +200,7 @@ fn use_settings(app: &AppHandle, cfg: &Config, matcher: Matcher) {
         b.quick_binds = cfg.quick_binds.clone();
         b.matcher = matcher;
         b.voice = cfg.voice.clone();
+        b.sounds = cfg.sounds;
     });
     voice::apply(app, &cfg.voice);
 }
@@ -209,7 +211,13 @@ pub fn current(app: &AppHandle) -> Config {
         hotkey: b.hotkey.clone(),
         quick_binds: b.quick_binds.clone(),
         voice: b.voice.clone(),
+        sounds: b.sounds,
     })
+}
+
+/// The speaker button: sounds on or off, separately from the rest of the settings.
+pub fn set_sounds(app: &AppHandle, on: bool) {
+    with_bound(app, |b| b.sounds = on);
 }
 
 /// Releases every shortcut so the settings window can capture keys normally.

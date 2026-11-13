@@ -51,6 +51,10 @@ export function createPreviewBackend(): Backend {
     async onVoiceHeard(handler) {
       voiceListeners.heard = handler;
     },
+
+    // No settings window here; sounds stay on.
+    getSoundsOn: async () => true,
+    async onSoundsOn() {},
   };
 }
 

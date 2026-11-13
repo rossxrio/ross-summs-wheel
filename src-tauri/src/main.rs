@@ -33,6 +33,7 @@ fn main() {
             overlay::set_overlay_shown,
             settings::get_settings,
             settings::save_settings,
+            settings::set_sounds,
             settings::quit_app,
             voice::get_voice_status,
             voice::voice_test,

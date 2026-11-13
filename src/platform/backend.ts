@@ -20,6 +20,9 @@ export interface Backend {
   onVoiceListening(handler: (listening: VoiceListening) => void): Promise<void>;
   /** Whisper's transcript of one push-to-talk clip (see src-tauri/src/voice). */
   onVoiceHeard(handler: (heard: VoiceHeard) => void): Promise<void>;
+  /** Whether the overlay plays sounds (the settings window's speaker button). */
+  getSoundsOn(): Promise<boolean>;
+  onSoundsOn(handler: (on: boolean) => void): Promise<void>;
 }
 
 /** Mirrors `Listening` in src-tauri/src/voice/mod.rs. */

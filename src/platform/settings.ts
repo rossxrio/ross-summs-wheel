@@ -10,6 +10,8 @@ export interface Settings {
   hotkey: string;
   quickBinds: QuickBind[];
   voice: VoiceSettings;
+  /** Overlay sounds; set with `setSounds`, which applies and saves at once. */
+  sounds: boolean;
 }
 
 /** Mirrors `VoiceConfig` in src-tauri/src/voice/mod.rs. */
@@ -52,6 +54,8 @@ export interface SettingsBackend {
   isOverlayShown(): Promise<boolean>;
   /** Hides or shows the overlay for this session. */
   setOverlayShown(shown: boolean): Promise<void>;
+  /** Turns the overlay's sounds on or off, and remembers it. */
+  setSounds(on: boolean): Promise<void>;
   /** Exits the whole app. */
   quit(): Promise<void>;
   getVoiceStatus(): Promise<VoiceStatus>;
@@ -71,6 +75,7 @@ const tauriSettings: SettingsBackend = {
   close: () => getCurrentWindow().close(),
   isOverlayShown: () => invoke<boolean>("get_overlay_shown"),
   setOverlayShown: (shown) => invoke<void>("set_overlay_shown", { shown }),
+  setSounds: (on) => invoke<void>("set_sounds", { on }),
   quit: () => invoke<void>("quit_app"),
   getVoiceStatus: () => invoke<VoiceStatus>("get_voice_status"),
   async onVoiceStatus(handler) {
@@ -96,6 +101,7 @@ function createPreviewSettings(): SettingsBackend {
     hotkey: "Backquote",
     quickBinds: [{ role: "TOP", spell: "SummonerFlash", keys: ["KeyT", "KeyD"] }],
     voice: { enabled: false, key: "", model: "tiny.en" },
+    sounds: true,
   };
   const models = [
     { id: "tiny.en", label: "Fast (~0.5 s)", sizeMb: 78, downloaded: false },
@@ -121,6 +127,9 @@ function createPreviewSettings(): SettingsBackend {
     isOverlayShown: async () => overlayShown,
     setOverlayShown: async (shown) => {
       overlayShown = shown;
+    },
+    setSounds: async (on) => {
+      settings.sounds = on;
     },
     quit: async () => console.info("app quit"),
     getVoiceStatus: async () => status(),

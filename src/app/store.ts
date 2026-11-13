@@ -2,7 +2,7 @@ import { baseCooldown, enemyHaste } from "../league/haste";
 import { assignRoles, matchKey, type Roster } from "../league/roster";
 import { fallbackSpellData, normalizeSpellId } from "../league/spells";
 import type { GameState, Role, SpellData } from "../league/types";
-import { Timers } from "./timers";
+import { type Timer, Timers } from "./timers";
 
 /** Everything the app knows about the current game, plus the user's timers and toggles. */
 export class Store {
@@ -77,9 +77,10 @@ export class Store {
     else this.startTimer(role, spellId);
   }
 
-  /** Moves time forward by `dtSec` real seconds. */
-  advance(dtSec: number): void {
-    this.timers.advance(dtSec, this.hasteOf);
+  /** Moves time forward by `dtSec` real seconds. Returns the timers that just came back up. */
+  advance(dtSec: number): Timer[] {
+    const up = this.timers.advance(dtSec, this.hasteOf);
     this.timers.prune();
+    return up;
   }
 }

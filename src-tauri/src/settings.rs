@@ -5,9 +5,14 @@ use crate::{
     config::{self, Config},
     hotkey, tray, voice,
 };
-use tauri::{async_runtime, AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
+use std::sync::{Mutex, PoisonError};
+use tauri::{async_runtime, AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
 
 const LABEL: &str = "settings";
+
+/// Held while a command reads or writes config.json, so a Save and a click
+/// on the speaker button can't overwrite each other.
+static SAVING: Mutex<()> = Mutex::new(());
 
 /// Opens the settings window, or focuses it if it's already open. Called on
 /// the main thread (hotkey taps, tray menu).
@@ -77,10 +82,27 @@ pub fn get_settings(app: AppHandle) -> Config {
 
 /// Puts the settings into use right away and saves them. The error is shown to the user.
 #[tauri::command]
-pub async fn save_settings(app: AppHandle, settings: Config) -> Result<(), String> {
+pub async fn save_settings(app: AppHandle, mut settings: Config) -> Result<(), String> {
+    let _saving = SAVING.lock().unwrap_or_else(PoisonError::into_inner);
+    // The speaker button saves on its own; the page's copy may be from before it was clicked.
+    settings.sounds = hotkey::current(&app).sounds;
     hotkey::apply(&app, &settings)?;
     config::save(&app, &settings)?;
     tray::show_hotkey(&app, &settings.hotkey);
+    Ok(())
+}
+
+/// The speaker button: applies right away (no Save) and is remembered.
+#[tauri::command]
+pub async fn set_sounds(app: AppHandle, on: bool) -> Result<(), String> {
+    let _saving = SAVING.lock().unwrap_or_else(PoisonError::into_inner);
+    // From the file, not the settings in use: those may hold a fallback hotkey.
+    // A file with a mistake in it is left for the user to fix, not overwritten.
+    let mut cfg = config::read(&app)?.unwrap_or_else(|| hotkey::current(&app));
+    cfg.sounds = on;
+    config::save(&app, &cfg)?;
+    hotkey::set_sounds(&app, on);
+    let _ = app.emit("sounds", on);
     Ok(())
 }
 

@@ -26,6 +26,7 @@ const bindsSub = document.getElementById("binds-sub")!;
 const statusElement = document.getElementById("status")!;
 const saveButton = document.getElementById("save") as HTMLButtonElement;
 const overlayButton = document.getElementById("overlay-toggle") as HTMLButtonElement;
+const soundsButton = document.getElementById("sounds-toggle") as HTMLButtonElement;
 const quitButton = document.getElementById("quit") as HTMLButtonElement;
 const voiceOn = document.getElementById("voice-on") as HTMLInputElement;
 const voiceBody = document.getElementById("voice-body")!;
@@ -40,6 +41,8 @@ const voiceLive = document.getElementById("voice-live")!;
 
 const ICON_X = `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>`;
 const ICON_EYE = `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8 12.1 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></svg>`;
+const ICON_SPEAKER = `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 6v4h2.5l3.5 3V3L5 6z"/><path d="M10.6 5.6a3.4 3.4 0 0 1 0 4.8M12.6 3.6a6.2 6.2 0 0 1 0 8.8"/></svg>`;
+const ICON_SPEAKER_OFF = `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 6v4h2.5l3.5 3V3L5 6z"/><path d="M11 6l3.5 4M14.5 6L11 10"/></svg>`;
 const ICON_EYE_OFF = `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.6 3.7A6.6 6.6 0 0 1 8 3.5c4.1 0 6.5 4.5 6.5 4.5a11 11 0 0 1-1.7 2.3M10.2 11.9A5.8 5.8 0 0 1 8 12.5C3.9 12.5 1.5 8 1.5 8a11.3 11.3 0 0 1 2.8-3.2M2 2l12 12"/></svg>`;
 
 // ---- State -----------------------------------------------------------------
@@ -49,7 +52,12 @@ type Recording =
   | { kind: "bind"; index: number; before: string[]; idle?: number }
   | { kind: "voice" };
 
-let saved: Settings = { hotkey: "", quickBinds: [], voice: { enabled: false, key: "", model: "tiny.en" } };
+let saved: Settings = {
+  hotkey: "",
+  quickBinds: [],
+  voice: { enabled: false, key: "", model: "tiny.en" },
+  sounds: true,
+};
 let draft: Settings = structuredClone(saved);
 let recording: Recording | null = null;
 let saving = false;
@@ -179,6 +187,14 @@ function describeTest(text: string, words: Parameters<typeof parseVoice>[0], dec
 }
 
 function renderAppActions(): void {
+  const sounds = saved.sounds;
+  soundsButton.innerHTML = sounds ? ICON_SPEAKER : ICON_SPEAKER_OFF;
+  soundsButton.setAttribute("aria-label", sounds ? "Mute sounds" : "Unmute sounds");
+  soundsButton.setAttribute("aria-pressed", String(!sounds));
+  soundsButton.title = sounds
+    ? "Mute sounds: voice cues and the chime when an enemy spell is back up"
+    : "Sounds muted: click to turn them back on";
+
   overlayButton.innerHTML = overlayShown ? ICON_EYE : ICON_EYE_OFF;
   overlayButton.setAttribute("aria-label", overlayShown ? "Hide overlay" : "Show overlay");
   overlayButton.setAttribute("aria-pressed", String(!overlayShown));
@@ -349,6 +365,21 @@ async function toggleOverlay(): Promise<void> {
   render();
 }
 
+/** Applies and saves at once, like the overlay button; it isn't part of the Save draft. */
+async function toggleSounds(): Promise<void> {
+  soundsButton.disabled = true;
+  const on = !saved.sounds;
+  try {
+    await backend.setSounds(on);
+    saved.sounds = draft.sounds = on;
+    notice = { text: on ? "Sounds on" : "Sounds muted", tone: "ok" };
+  } catch (err) {
+    notice = { text: String(err), tone: "error" };
+  }
+  soundsButton.disabled = false;
+  render();
+}
+
 async function quit(): Promise<void> {
   quitButton.disabled = true;
   try {
@@ -474,6 +505,7 @@ document.getElementById("add")!.addEventListener("click", addBind);
 saveButton.addEventListener("click", () => void save());
 document.getElementById("close")!.addEventListener("click", () => void backend.close());
 overlayButton.addEventListener("click", () => void toggleOverlay());
+soundsButton.addEventListener("click", () => void toggleSounds());
 
 voiceOn.addEventListener("change", () => {
   draft.voice.enabled = voiceOn.checked;
