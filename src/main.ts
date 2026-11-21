@@ -7,7 +7,7 @@ import { playSpellUp, setSoundsOn, voiceListening, voiceResult } from "./app/sou
 import { Store } from "./app/store";
 import type { Timer } from "./app/timers";
 import { roleItems, spellHint, spellIdsOf, spellItems, spellTitle } from "./app/wheel-content";
-import { renderHud } from "./hud/hud";
+import { Hud } from "./hud/hud";
 import { normalizeSpellId, ROLE_LABEL, ROLES } from "./league/spells";
 import type { GameState, Role } from "./league/types";
 import { backend } from "./platform/backend";
@@ -22,7 +22,7 @@ const TICK_MS = 250;
 const SPELL_DATA_RETRY_MS = 60_000;
 
 const store = new Store();
-const hudElement = document.getElementById("hud")!;
+const hud = new Hud(document.getElementById("hud")!);
 const voiceToast = new VoiceToast(document.getElementById("voice")!);
 const wheelRenderer = new WheelRenderer(document.getElementById("wheel")!);
 
@@ -44,7 +44,7 @@ const wheel = new WheelController({
 });
 
 function redraw(): void {
-  renderHud(hudElement, store);
+  hud.render(store);
   wheel.refresh();
 }
 
