@@ -74,6 +74,23 @@ The model stays loaded the whole time voice is on, even outside a game; only the
 closes. On a PC with 8 GB of RAM, use Fast or Balanced. Turning voice off in Settings and
 saving frees the memory right away.
 
+## Fullscreen
+
+The overlay works in all three of League's window modes. In **Fullscreen**, Windows runs
+the game as a borderless window behind the scenes ("fullscreen optimizations", on by
+default), and the app keeps the overlay above it and on the game's monitor, at the game's
+resolution.
+
+If fullscreen optimizations are turned off for League (Compatibility tab of
+`League of Legends.exe`), the game takes over the screen and no other program can draw
+over it without hooking into the game, which Vanguard doesn't allow. The app notices: the
+wheel stays closed instead of knocking the game out of fullscreen, quick binds and voice
+still start timers, and the tray icon says so. Switch League to **Borderless**, or turn
+fullscreen optimizations back on.
+
+`input.log`, next to `config.json`, records what the app saw: the game window, the
+overlay being put back on top, and exclusive fullscreen.
+
 ---
 
 <div align="center">

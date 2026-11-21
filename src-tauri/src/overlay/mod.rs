@@ -5,15 +5,28 @@
 //! Windows), so taking mouse input never steals keyboard focus from the game.
 //! Don't set that style by hand: Tauri recomputes the extended styles whenever
 //! click-through is toggled and would drop it.
+//!
+//! game.rs keeps the window over League's game window, fullscreen included.
+
+mod game;
 
 use crate::key_watch;
 use serde::Deserialize;
-use std::sync::Mutex;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Mutex,
+};
 use tauri::{App, AppHandle, Manager, PhysicalPosition, State, WebviewWindow};
 
 const LABEL: &str = "overlay";
 
+/// Set while the wheel has the mouse.
+static WHEEL_OPEN: AtomicBool = AtomicBool::new(false);
+/// Set while League is in front in true exclusive fullscreen (see game.rs).
+static EXCLUSIVE: AtomicBool = AtomicBool::new(false);
+
 /// Stretches the overlay over the primary monitor and makes it click-through.
+/// From then on game.rs moves it to whichever monitor the game is on.
 pub fn setup(app: &App) -> tauri::Result<()> {
     let window = app
         .get_webview_window(LABEL)
@@ -26,7 +39,26 @@ pub fn setup(app: &App) -> tauri::Result<()> {
 
     window.set_ignore_cursor_events(true)?;
     window.show()?;
+
+    #[cfg(windows)]
+    game::start(app.handle().clone(), window.hwnd()?.0 as _);
     Ok(())
+}
+
+fn wheel_open() -> bool {
+    WHEEL_OPEN.load(Ordering::Relaxed)
+}
+
+/// True while League is in front in true exclusive fullscreen, where the
+/// overlay can't be seen and covering the game would knock it out of
+/// fullscreen. The wheel doesn't open then.
+pub fn game_is_exclusive() -> bool {
+    EXCLUSIVE.load(Ordering::Relaxed)
+}
+
+/// Returns whether it changed.
+fn set_exclusive(exclusive: bool) -> bool {
+    EXCLUSIVE.swap(exclusive, Ordering::Relaxed) != exclusive
 }
 
 /// False while the user has hidden the overlay from settings. The wheel
@@ -83,14 +115,19 @@ pub fn set_wheel(window: WebviewWindow, saved: State<'_, SavedCursor>, mode: Whe
     let apply = || -> tauri::Result<()> {
         match mode {
             WheelMode::Open => {
+                WHEEL_OPEN.store(true, Ordering::Relaxed);
                 *saved.0.lock().unwrap() = Some(window.cursor_position()?);
                 window.set_ignore_cursor_events(false)?;
-                // A borderless game can end up above the overlay.
-                key_watch::bring_to_top(&window);
+                // The game can end up above the overlay. Not over exclusive
+                // fullscreen, which that would knock out of fullscreen.
+                if !game_is_exclusive() {
+                    key_watch::bring_to_top(&window);
+                }
                 center_cursor(&window)?;
             }
             WheelMode::Recenter => center_cursor(&window)?,
             WheelMode::Close => {
+                WHEEL_OPEN.store(false, Ordering::Relaxed);
                 window.set_ignore_cursor_events(true)?;
                 if let Some(pos) = saved.0.lock().unwrap().take() {
                     restore_cursor(&window, pos)?;

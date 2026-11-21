@@ -106,6 +106,12 @@ fn on_edge(app: &AppHandle, edge: Edge, at: Instant) {
                     return;
                 }
                 arm(app);
+                // The wheel can't be seen over exclusive fullscreen, and taking
+                // the mouse would only knock the game out of it. Quick binds still work.
+                if overlay::game_is_exclusive() {
+                    key_watch::log::line("wheel not opened: League is in exclusive fullscreen");
+                    return;
+                }
             } else {
                 with_bound(app, |b| b.taps.release(now));
                 disarm(app);

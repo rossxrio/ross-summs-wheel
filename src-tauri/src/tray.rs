@@ -2,6 +2,7 @@
 //! where the user opens settings, restarts and quits.
 
 use crate::{hotkey, key_watch, settings};
+use std::sync::Mutex;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
@@ -9,6 +10,28 @@ use tauri::{
 };
 
 const ID: &str = "main";
+
+/// What the tooltip shows: the hotkey, and whether League's fullscreen hides the overlay.
+static TOOLTIP: Mutex<Tooltip> = Mutex::new(Tooltip {
+    hotkey: String::new(),
+    fullscreen_warning: false,
+});
+
+struct Tooltip {
+    hotkey: String,
+    fullscreen_warning: bool,
+}
+
+impl Tooltip {
+    fn text(&self) -> String {
+        if self.fullscreen_warning {
+            // Windows cuts tooltips off at 127 characters.
+            "Summs Wheel: League's exclusive fullscreen hides the overlay. Use Borderless.".into()
+        } else {
+            format!("Summs Wheel: hold {}", self.hotkey)
+        }
+    }
+}
 
 pub fn build(app: &App, hotkey_label: &str) -> tauri::Result<()> {
     let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
@@ -25,9 +48,10 @@ pub fn build(app: &App, hotkey_label: &str) -> tauri::Result<()> {
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&settings, &restart, &admin, &quit])?;
 
+    let tooltip = update(|t| t.hotkey = hotkey_label.to_string());
     TrayIconBuilder::with_id(ID)
         .icon(app.default_window_icon().cloned().expect("bundle icon"))
-        .tooltip(tooltip(hotkey_label))
+        .tooltip(tooltip)
         .menu(&menu)
         .on_menu_event(|app, event| match event.id.as_ref() {
             "settings" => settings::open(app),
@@ -54,11 +78,24 @@ fn restart_elevated(app: &AppHandle) {
 
 /// Updates the tooltip after the hotkey changes.
 pub fn show_hotkey(app: &AppHandle, hotkey_label: &str) {
-    if let Some(tray) = app.tray_by_id(ID) {
-        let _ = tray.set_tooltip(Some(tooltip(hotkey_label)));
-    }
+    let text = update(|t| t.hotkey = hotkey_label.to_string());
+    set_tooltip(app, text);
 }
 
-fn tooltip(hotkey_label: &str) -> String {
-    format!("Summs Wheel: hold {hotkey_label}")
+/// Says in the tooltip while League's exclusive fullscreen hides the overlay.
+pub fn set_fullscreen_warning(app: &AppHandle, on: bool) {
+    let text = update(|t| t.fullscreen_warning = on);
+    set_tooltip(app, text);
+}
+
+fn update(change: impl FnOnce(&mut Tooltip)) -> String {
+    let mut tooltip = TOOLTIP.lock().unwrap_or_else(|e| e.into_inner());
+    change(&mut tooltip);
+    tooltip.text()
+}
+
+fn set_tooltip(app: &AppHandle, text: String) {
+    if let Some(tray) = app.tray_by_id(ID) {
+        let _ = tray.set_tooltip(Some(text));
+    }
 }

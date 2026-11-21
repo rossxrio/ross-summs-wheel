@@ -274,15 +274,21 @@ pub fn is_elevated() -> bool {
     true
 }
 
-/// A small text log of what each input source saw (`input.log` next to
-/// config.json), so "nothing happens" can be traced to a source.
+/// A small text log of what each input source saw, and what the overlay did
+/// (`input.log` next to config.json), so "nothing happens" can be traced.
+///
+/// Lines are written by a thread of their own: they're logged from the
+/// keyboard hook, which Windows drops if it's slow, and a disk write can stall.
 pub mod log {
     use super::*;
+    use std::sync::mpsc::{self, Sender};
 
-    /// Stop writing after this many lines so a long session can't fill the disk.
+    /// Lines per file. When full, it becomes `input.old.log` and a new one
+    /// starts, so a long session keeps its latest lines without filling the disk.
     const MAX_LINES: u32 = 5000;
 
-    static FILE: Mutex<Option<(File, u32, Instant)>> = Mutex::new(None);
+    static START: LazyLock<Instant> = LazyLock::new(Instant::now);
+    static WRITER: Mutex<Option<Sender<String>>> = Mutex::new(None);
 
     pub(super) fn open(path: Option<PathBuf>) {
         let Some(path) = path else { return };
@@ -290,25 +296,55 @@ pub mod log {
             let _ = std::fs::create_dir_all(dir);
         }
         // Truncated on every start: only the current session matters.
-        let file = OpenOptions::new().create(true).write(true).truncate(true).open(&path);
-        if let Ok(file) = file {
-            *FILE.lock().unwrap() = Some((file, 0, Instant::now()));
+        let Ok(file) = OpenOptions::new().create(true).write(true).truncate(true).open(&path) else {
+            return;
+        };
+        LazyLock::force(&START);
+        let (tx, rx) = mpsc::channel::<String>();
+        let spawned = std::thread::Builder::new().name("log".into()).spawn(move || {
+            let mut file = file;
+            let mut count = 0;
+            for line in rx {
+                if count == MAX_LINES {
+                    if let Some(next) = rotate(&path) {
+                        file = next;
+                        count = 0;
+                    }
+                }
+                count += 1;
+                let _ = file.write_all(line.as_bytes());
+                let _ = file.flush();
+            }
+        });
+        if spawned.is_ok() {
+            *WRITER.lock().unwrap_or_else(|e| e.into_inner()) = Some(tx);
         }
     }
 
+    /// Keeps the full file as `input.old.log` and returns a fresh one.
+    pub(super) fn rotate(path: &std::path::Path) -> Option<File> {
+        let old = path.with_extension("old.log");
+        let _ = std::fs::rename(path, &old);
+        let mut file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(path)
+            .ok()?;
+        let _ = writeln!(file, "(earlier lines are in {})", old.display());
+        Some(file)
+    }
+
     pub fn line(text: &str) {
-        let mut guard = FILE.lock().unwrap();
-        let Some((file, count, start)) = guard.as_mut() else {
-            eprintln!("{text}");
-            return;
-        };
-        if *count >= MAX_LINES {
-            return;
+        let secs = START.elapsed().as_secs_f64();
+        let line = format!("[{secs:9.3}s] {text}\n");
+        let writer = WRITER.lock().unwrap_or_else(|e| e.into_inner());
+        match writer.as_ref() {
+            Some(tx) => {
+                let _ = tx.send(line);
+            }
+            None => eprint!("{line}"),
         }
-        *count += 1;
-        let secs = start.elapsed().as_secs_f64();
-        let _ = writeln!(file, "[{secs:9.3}s] {text}");
-        let _ = file.flush();
     }
 }
 
@@ -357,6 +393,27 @@ mod tests {
         assert!(t.report(Key::Wheel, true, Source::Poll, ms(t0, 0)).is_some());
         assert_eq!(t.report(Key::Wheel, true, Source::Poll, ms(t0, 15)), None);
         assert!(t.report(Key::Wheel, false, Source::Poll, ms(t0, 600)).is_some());
+    }
+
+    #[test]
+    fn a_full_log_moves_aside_for_a_fresh_one() {
+        let dir = std::env::temp_dir().join(format!("summs-wheel-log-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("input.log");
+        std::fs::write(&path, "old line\n").unwrap();
+        let mut fresh = log::rotate(&path).expect("new log file");
+        writeln!(fresh, "new line").unwrap();
+        drop(fresh);
+        assert_eq!(
+            std::fs::read_to_string(dir.join("input.old.log")).unwrap(),
+            "old line\n"
+        );
+        let now = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            now.starts_with("(earlier lines are in ") && now.ends_with("new line\n"),
+            "{now}"
+        );
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
