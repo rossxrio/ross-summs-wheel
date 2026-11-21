@@ -32,6 +32,10 @@ const MIN_HOLD: Duration = Duration::from_millis(250);
 const PRE_ROLL: Duration = Duration::from_millis(300);
 /// ...and after it came up: the last word often trails the release.
 const TAIL: Duration = Duration::from_millis(200);
+/// The model is unloaded this long after the game ends (or settings closes).
+/// Long enough that a moment without the live API mid-game doesn't reload
+/// it; between games it frees up to ~1.2 GB.
+const UNLOAD_AFTER: Duration = Duration::from_secs(120);
 
 /// Voice settings, stored in config.json.
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
@@ -70,6 +74,8 @@ struct Inner {
     settings_open: bool,
     /// Why the mic couldn't open, for the settings page.
     mic_error: Option<String>,
+    /// Since when the loaded model has had no use (no game, settings closed).
+    idle_since: Option<Instant>,
 }
 
 #[derive(Clone, Copy)]
@@ -173,22 +179,48 @@ fn refresh(app: &AppHandle) {
     });
 }
 
+/// Voice could be used right now: in game, or the settings test button.
+fn in_use(inner: &Inner) -> bool {
+    inner.in_game || inner.settings_open
+}
+
 fn wants_mic(inner: &Inner) -> bool {
-    inner.engine.is_some() && (inner.in_game || inner.settings_open)
+    inner.engine.is_some() && in_use(inner)
 }
 
 fn refresh_now(app: &AppHandle) {
+    let mut unload_check = None;
+    let mut note = None;
     let open_mic = with_inner(app, |inner| {
         let cfg = &inner.config;
         let model_path = models::path(app, &cfg.model).filter(|_| models::is_downloaded(app, &cfg.model));
         match model_path {
-            Some(path) if cfg.enabled => {
+            Some(path) if cfg.enabled && in_use(inner) => {
+                inner.idle_since = None;
                 if inner.engine.as_ref().is_none_or(|e| e.model != cfg.model) {
                     inner.engine = Some(engine::Engine::start(app.clone(), cfg.model.clone(), path));
+                    note = Some(format!("voice model {} loading", cfg.model));
+                }
+            }
+            // Out of use: kept a while, then unloaded (see UNLOAD_AFTER).
+            Some(_) if cfg.enabled && inner.engine.as_ref().is_some_and(|e| e.model == cfg.model) => {
+                let since = *inner.idle_since.get_or_insert_with(Instant::now);
+                let left = UNLOAD_AFTER.saturating_sub(since.elapsed());
+                if left.is_zero() {
+                    inner.engine = None;
+                    inner.idle_since = None;
+                    note = Some("voice model unloaded: not in a game".into());
+                } else {
+                    unload_check = Some(left);
                 }
             }
             // Dropping the engine ends its thread and frees the model's memory.
-            _ => inner.engine = None,
+            _ => {
+                if inner.engine.take().is_some() {
+                    note = Some("voice model unloaded".into());
+                }
+                inner.idle_since = None;
+            }
         }
 
         if !wants_mic(inner) {
@@ -217,6 +249,17 @@ fn refresh_now(app: &AppHandle) {
                 }
                 Err(err) => inner.mic_error = Some(err),
             }
+        });
+    }
+    if let Some(note) = note {
+        crate::key_watch::log::line(&note);
+    }
+    if let Some(left) = unload_check {
+        // Look again once the wait is over; a game starting meanwhile resets it.
+        let app = app.clone();
+        async_runtime::spawn(async move {
+            tokio::time::sleep(left).await;
+            refresh(&app);
         });
     }
     emit_status(app);

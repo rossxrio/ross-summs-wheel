@@ -70,9 +70,11 @@ About 160 MB of the total is WebView2, which draws the overlay; that part is nor
 Tauri app. The rest is the model plus Whisper's working buffers. A measured run with
 Accurate came to ~1.4 GB, of which ~1.2 GB was the model.
 
-The model stays loaded the whole time voice is on, even outside a game; only the mic
-closes. On a PC with 8 GB of RAM, use Fast or Balanced. Turning voice off in Settings and
-saving frees the memory right away.
+The model is loaded only while it can be used: during a game, or while settings is open
+for **Hold to test**. It's unloaded two minutes after the game ends, so between games the
+app is back to ~200 MB. Loading takes a second or two at the start of a game. On a PC
+with 8 GB of RAM, use Fast or Balanced. Turning voice off in Settings and saving frees
+the memory right away.
 
 ## Fullscreen
 
